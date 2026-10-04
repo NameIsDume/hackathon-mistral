@@ -8,8 +8,9 @@ export type Reviewer = { role: Role; name: string };
 export class InvalidAwareness extends Error {}
 
 // Reload and retry once if someone else wrote in between; a second conflict goes up to the caller (409).
-async function withRetry(incidentId: string, write: (s: IncidentSnapshot, key: string) => Promise<number>) {
-  const key = randomUUID(); // a conflicting attempt inserts nothing, so the retry may reuse the key
+// `key` lets a caller derive it from its own ids (Slack action), so a replayed click records once.
+async function withRetry(incidentId: string, write: (s: IncidentSnapshot, key: string) => Promise<number>, key: string = randomUUID()) {
+  // a conflicting attempt inserts nothing, so the retry may reuse the key
   for (let attempt = 0; ; attempt++) {
     const snapshot = await loadSnapshot(incidentId);
     try {
@@ -20,9 +21,12 @@ async function withRetry(incidentId: string, write: (s: IncidentSnapshot, key: s
   }
 }
 
-export function confirmSeverity(incidentId: string, value: Severity, by: Reviewer) {
-  return withRetry(incidentId, (s, key) =>
-    recordEvent({
+// Returns the previous value too, so the caller can notify the roles the new severity adds (#40, lib/services/triggers.ts).
+export async function confirmSeverity(incidentId: string, value: Severity, by: Reviewer, key?: string) {
+  let previous = null as Severity | null; // assigned in the callback (a plain annotation would stay narrowed to null)
+  const version = await withRetry(incidentId, (s, key) => {
+    previous = s.severity.value;
+    return recordEvent({
       incidentId,
       expectedVersion: s.version,
       actor: by.name,
@@ -32,11 +36,12 @@ export function confirmSeverity(incidentId: string, value: Severity, by: Reviewe
         ...s.facts,
         severity: { value, state: "confirmed", method: "human", sources: [], confirmedBy: by.name, confirmedAt: new Date().toISOString() },
       },
-    }),
-  );
+    });
+  }, key);
+  return { version, previous };
 }
 
-export async function setAwareness(incidentId: string, at: string, by: Reviewer) {
+export async function setAwareness(incidentId: string, at: string, by: Reviewer, key?: string) {
   const t = Date.parse(at);
   if (t > Date.now()) throw new InvalidAwareness("awareness time is in the future");
   return withRetry(incidentId, (s, key) => {
@@ -49,5 +54,5 @@ export async function setAwareness(incidentId: string, at: string, by: Reviewer)
       idempotencyKey: key,
       awarenessAt: at,
     });
-  });
+  }, key);
 }
