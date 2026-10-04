@@ -15,6 +15,7 @@ import { buildDraft, DraftRefused, type DraftDocument } from "@/lib/services/dra
 import { afterSeverityChange } from "@/lib/services/triggers";
 import { draftMessage, handleDraftInteraction, isDraftInteraction } from "@/lib/services/slack-drafts";
 import type { GdprDocument } from "@/lib/regulations/gdpr/templates";
+import { handleMemoInteraction, isMemoPreview, postLawyerMemo } from "@/lib/services/memo";
 
 // ---------------------------------------------------------------------------
 // Payloads (only the fields we use)
@@ -163,7 +164,7 @@ export async function refreshDms(incidentId: string, note: string, own?: { role:
   const targets = new Map<string, Target>();
   const sent: Target[] = [];
   for (const { id, event: e } of events) {
-    if (e.type !== "notification" || !e.slack) continue;
+    if (e.type !== "notification" || !e.slack || isMemoPreview(e.preview)) continue; // the memo is its own message (#56)
     const reask = e.questionIds
       .map((q) => q.replace(/^gdpr\./, ""))
       .filter((k) => !events.some((x) => x.id > id && x.event.type === "answer" && x.event.factKey === k));
@@ -295,6 +296,7 @@ function lawyerModal(callbackId: "lawyer_ask" | "lawyer_request_facts", meta: z.
 
 export async function handleInteraction(payload: unknown): Promise<Outcome> {
   if (isDraftInteraction(payload)) return handleDraftInteraction(payload); // draft_* actions (#49): lib/services/slack-drafts.ts
+  if ((payload as { actions?: { action_id?: string }[] })?.actions?.[0]?.action_id?.startsWith("memo_")) return handleMemoInteraction(payload); // #56: lib/services/memo.ts
   const p = Interaction.parse(payload);
   return p.type === "block_actions" ? onAction(p) : onSubmit(p);
 }
@@ -495,6 +497,7 @@ async function onDecisionSubmit(p: ViewSubmission): Promise<Outcome> {
         (result.event.flag ? ` (${result.event.flag})` : "") +
         (result.replayed ? " (already recorded)" : drafts ? ". Drafts sent below." : meta.stage === "recommendation" ? ". Sent to the lawyer." : ".");
       await refreshDms(meta.incidentId, note, { role: by.role, channel: meta.channel, ts: meta.ts });
+      if (meta.stage === "recommendation" && !result.replayed) await postLawyerMemo(meta.incidentId); // #56, never throws
     },
   };
 }
