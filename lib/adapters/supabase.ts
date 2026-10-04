@@ -24,6 +24,7 @@ export async function recordEvent(args: {
   event: IncidentEvent;
   idempotencyKey: string;
   facts?: Facts; // full facts object after the change, or omit to keep them
+  awarenessAt?: string; // sets incidents.awareness_at in the same transaction (R05)
 }): Promise<number> {
   const { type, ...payload } = IncidentEvent.parse(args.event);
   const { data, error } = await db().rpc("record_event" as never, {
@@ -34,6 +35,7 @@ export async function recordEvent(args: {
     p_payload: payload,
     p_idempotency_key: args.idempotencyKey,
     p_facts: args.facts ?? null,
+    p_awareness_at: args.awarenessAt ?? null,
   } as never);
   if (error?.code === "PT409") throw new VersionConflict(error.message);
   if (error) throw new Error(error.message);
