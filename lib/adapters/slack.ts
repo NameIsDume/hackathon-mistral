@@ -65,15 +65,34 @@ export const ANSWER_LABEL: Record<Answer, string> = { yes: "Yes", no: "No", unkn
 // Section text is capped at 3000 characters by Slack.
 export const section = (text: string): Block => ({ type: "section", text: { type: "mrkdwn", text: text.slice(0, 3000) } });
 export const header = (text: string): Block => ({ type: "header", text: { type: "plain_text", text: text.slice(0, 150) } });
+export const divider: Block = { type: "divider" };
+// One grey line of small print; Slack allows 10 elements per context block.
+export const context = (...texts: (string | false | null | undefined)[]): Block => ({
+  type: "context",
+  elements: texts.filter((t): t is string => !!t).slice(0, 10).map((t) => ({ type: "mrkdwn", text: t.slice(0, 3000) })),
+});
+// Two-column facts: at most 10 fields of 2000 characters each.
+export const fields = (texts: string[], accessory?: Block): Block => ({
+  type: "section",
+  fields: texts.slice(0, 10).map((t) => ({ type: "mrkdwn", text: t.slice(0, 2000) })),
+  ...(accessory && { accessory }),
+});
 
-export function briefBlocks(title: string, paragraphs: string[]): Block[] {
-  return [header(title), ...paragraphs.filter(Boolean).map(section)];
+// Long mrkdwn split into sections under the 3000-character cap, on line boundaries.
+export function sections(text: string): Block[] {
+  const chunks: string[] = [];
+  for (const line of text.split("\n")) {
+    const last = chunks.at(-1);
+    if (last !== undefined && last.length + line.length + 1 <= 3000) chunks[chunks.length - 1] = `${last}\n${line}`;
+    else chunks.push(line);
+  }
+  return chunks.filter((c) => c.trim()).map(section);
 }
 
-// One question = a section + an actions block (block_id = factKey, so the answer can replace it in place).
+// One question = a section (question, plus what the AI suggests) + an actions block (block_id = factKey, so the answer can replace it in place).
 export function questionBlocks(incidentId: string, factKey: string, text: string): Block[] {
   return [
-    section(`*${text}*`),
+    section(text),
     {
       type: "actions",
       block_id: factKey,
@@ -99,15 +118,9 @@ export const button = (text: string, actionId: string, value: string, style?: "p
 });
 
 // A Markdown document (lib/regulations/gdpr/templates.ts toMarkdown) as readable blocks: title as header,
-// headings and bold in mrkdwn, split into sections under the 3000-character cap, at most 50 blocks per message.
-export function markdownBlocks(md: string): Block[] {
+// headings and bold in mrkdwn, split into sections under the 3000-character cap, at most `max` blocks (50 per message, 100 per modal).
+export function markdownBlocks(md: string, max = 50): Block[] {
   const [title, ...rest] = md.trim().split("\n");
   const body = rest.join("\n").replace(/^#+ (.*)$/gm, "*$1*").replace(/\*\*(.+?)\*\*/g, "*$1*").trim();
-  const chunks: string[] = [];
-  for (const line of body.split("\n")) {
-    const last = chunks.at(-1);
-    if (last !== undefined && last.length + line.length + 1 <= 3000) chunks[chunks.length - 1] = `${last}\n${line}`;
-    else chunks.push(line);
-  }
-  return [header(title.replace(/^# /, "")), ...chunks.filter((c) => c.trim()).map(section)].slice(0, 50);
+  return [header(title.replace(/^# /, "")), ...sections(body)].slice(0, max);
 }

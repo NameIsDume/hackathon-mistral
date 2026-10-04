@@ -334,6 +334,26 @@ describe("POST /api/slack/interactions", () => {
     }
     expect(JSON.stringify(posts)).toContain("A phishing email led to the export");
     expect(posts.filter((p) => JSON.stringify(p).includes("draft_approve_section:consequences"))).toHaveLength(2); // under the CNIL draft, DPO and lawyer
+    // #57: header, status line, excerpt with "View full draft", then the draft buttons; never the whole markdown
+    for (const p of posts) {
+      expect(p.blocks.map((b: { type: string }) => b.type).slice(0, 3)).toEqual(["header", "context", "section"]);
+      expect(p.blocks.length).toBeLessThanOrEqual(4);
+      expect(p.blocks[2].accessory.action_id).toBe("draft_view");
+    }
+    expect(JSON.stringify(posts[0].blocks[1])).toContain("Status: *draft*");
+  });
+
+  it("#57: View details opens the role's details read-only; refused to anyone else", async () => {
+    const details = (user: string, role: string) => action(user, { action_id: "dm_details", value: JSON.stringify({ incidentId: INCIDENT_ID, role }) });
+    expect((await post(details("U_DPO", "dpo"))).status).toBe(200);
+    const [open] = bodies("views.open");
+    expect(open.view.callback_id).toBeUndefined(); // nothing to submit
+    expect(JSON.stringify(open.view.blocks)).toContain("GDPR Art. 33(1)");
+    expect(JSON.stringify(open.view.blocks)).toContain('\\"about encrypted\\"');
+    await post(details("U_IT", "dpo"));
+    expect(bodies("views.open")).toHaveLength(1);
+    expect(bodies("/actions/x")[0].text).toContain("addressed to someone else");
+    expect(m.recordEvent).not.toHaveBeenCalled();
   });
 
   it("a deferral by the lawyer is recorded without drafts", async () => {

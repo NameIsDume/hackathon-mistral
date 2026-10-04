@@ -5,7 +5,7 @@ import { z } from "zod";
 import { verifySlackSignature } from "@/lib/adapters/slack";
 import { handleInteraction, type Outcome } from "@/lib/services/slack-actions";
 
-export const maxDuration = 60; // drafts after a decision call Mistral (12 s budget) then post to Slack
+export const maxDuration = 120; // drafts call Mistral (12 s budget); the lawyer's memo calls a reasoning model (90 s budget)
 
 export async function POST(request: Request) {
   const raw = await request.text();
