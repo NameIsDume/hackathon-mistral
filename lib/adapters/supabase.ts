@@ -77,3 +77,27 @@ export async function listEvents(incidentId: string) {
     event: IncidentEvent.parse({ type: r.type, ...r.payload }),
   }));
 }
+
+// Incident list for the dashboard, newest first. The brief lives in the latest extraction event (incidents.brief stays null).
+export async function listIncidents() {
+  const [inc, ext] = await Promise.all([
+    db().from("incidents").select("id, first_signal_at, facts").order("first_signal_at", { ascending: false }),
+    db().from("incident_events").select("incident_id, payload").eq("type", "extraction").order("id"),
+  ]);
+  if (inc.error) throw new Error(inc.error.message);
+  if (ext.error) throw new Error(ext.error.message);
+  const briefs = new Map<string, string>();
+  for (const e of ext.data as { incident_id: string; payload: { brief?: string } }[])
+    if (e.payload.brief) briefs.set(e.incident_id, e.payload.brief);
+  return (inc.data as { id: string; first_signal_at: string; facts: Facts }[]).map(({ id, first_signal_at, facts }) => {
+    const { severity, ...rest } = facts;
+    return {
+      id,
+      firstSignalAt: first_signal_at,
+      severity: severity?.value ?? null,
+      factsConfirmed: Object.values(rest).filter((f) => f?.state === "confirmed").length,
+      factsTotal: Object.keys(rest).length,
+      brief: briefs.get(id) ?? null,
+    };
+  });
+}

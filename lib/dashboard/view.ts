@@ -111,3 +111,14 @@ export function threadsByRole(events: EventRow[]): RoleThread[] {
 
 export const answers = (events: EventRow[]) =>
   events.filter((e): e is Extract<EventRow, { type: "answer" }> => e.type === "answer");
+
+// listEvents() rows -> EventRow. Payload fields win over the audit columns (awareness carries its own `at`).
+export const toEventRows = (rows: { id: number; at: string; actor: string; event: IncidentEvent }[]): EventRow[] =>
+  rows.map(({ event, ...audit }) => ({ ...audit, ...event }));
+
+// The brief shown on the report: the latest extraction that produced one.
+export function latestBrief(events: EventRow[]): string | null {
+  let brief: string | null = null;
+  for (const e of events) if (e.type === "extraction" && e.brief) brief = e.brief;
+  return brief;
+}
