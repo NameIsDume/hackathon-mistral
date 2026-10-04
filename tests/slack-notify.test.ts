@@ -13,7 +13,7 @@ import { SIGNERS, type DecisionStatus } from "@/lib/services/decide";
 const now = new Date("2026-10-04T10:00:00+02:00");
 type Dm = { blocks: Record<string, unknown>[] } | null;
 const allActionIds = (dm: Dm) =>
-  (dm?.blocks ?? []).flatMap((b) => [...((b.elements as { action_id: string }[]) ?? []), ...(b.accessory ? [b.accessory as { action_id: string }] : [])]).map((e) => e.action_id);
+  (dm?.blocks ?? []).flatMap((b) => [...((b.elements as { action_id: string }[]) ?? []), ...(b.accessory ? [b.accessory as { action_id: string }] : [])]).map((e) => e.action_id).filter(Boolean);
 const actionsOf = (dm: Dm, blockId: string) => allActionIds({ blocks: (dm?.blocks ?? []).filter((b) => b.block_id === blockId) });
 const dmFor = (role: Role, s = snap(NUVOLA), extra: { decisions?: DecisionStatus[]; reask?: string[]; now?: Date } = {}) => {
   const dm = buildDm(role, { snapshot: s, assessment: evaluate(s), brief: "Phishing on the CRM: 3 exports downloaded.", now, ...extra });
@@ -87,7 +87,7 @@ describe("role scoping (Nuvola, severity average)", () => {
     expect(actionsOf(dm, "processing_role")).toEqual(["fact_confirm", "fact_wrong", "fact_dont_know"]);
     const ids = allActionIds(dm);
     expect(ids).toEqual(expect.arrayContaining(["severity", "awareness", "sign_decision:gdpr.notify_authority", "sign_decision:gdpr.inform_subjects", "sign_decision:gdpr.notify_controller"]));
-    const sev = dm.blocks.find((b) => (b.accessory as { action_id?: string })?.action_id === "severity")!.accessory as { options: { value: string }[] };
+    const sev = dm.blocks.flatMap((b) => (b.elements as { action_id?: string }[]) ?? []).find((e) => e.action_id === "severity") as { options: { value: string }[] };
     expect(sev.options.map((o) => JSON.parse(o.value))).toContainEqual({ incidentId: INCIDENT_ID, severity: "major" });
   });
 
@@ -98,7 +98,7 @@ describe("role scoping (Nuvola, severity average)", () => {
       if (role !== "dpo") expect(ids.filter((i) => i === "severity" || i === "awareness"), role).toEqual([]);
       const signs = (dm?.blocks ?? [])
         .flatMap((b) => (b.elements as { action_id: string; value: string }[] | undefined) ?? [])
-        .filter((e) => e.action_id.startsWith("sign_decision"));
+        .filter((e) => e.action_id?.startsWith("sign_decision"));
       const stage = (Object.keys(SIGNERS) as (keyof typeof SIGNERS)[]).find((k) => SIGNERS[k] === role);
       expect(signs.map((e) => JSON.parse(e.value).stage), role).toEqual(stage ? [stage, stage, stage] : []);
       if (role !== "lawyer") expect(ids.filter((i) => i.startsWith("lawyer_")), role).toEqual([]);
@@ -190,6 +190,46 @@ describe("role scoping (Nuvola, severity average)", () => {
         checked++;
       }
     expect(checked).toBeGreaterThan(10);
+  });
+});
+
+describe("sober layout (#57)", () => {
+  const ROLES = ["it", "business_owner", "dpo", "lawyer", "management"] as const;
+  const late = new Date("2026-10-06T22:00:00+02:00");
+  const cases = [snap(NUVOLA), snap({}), snap({ ...NUVOLA, processing_role: "processor" })];
+
+  it("every role's DM starts with a header, has at most one divider, no emoji, and stays within Slack's limits", () => {
+    for (const s of cases)
+      for (const role of [...ROLES, "reporter"] as const)
+        for (const at of [now, late]) {
+          const dm = dmFor(role, s, { now: at })!;
+          expect(dm.blocks[0].type, role).toBe("header");
+          expect(dm.blocks.filter((b) => b.type === "divider").length, role).toBeLessThanOrEqual(1);
+          expect(JSON.stringify(dm.blocks), role).not.toMatch(/\p{Extended_Pictographic}/u);
+          expect(dm.blocks.length, role).toBeLessThanOrEqual(50);
+          for (const b of dm.blocks) expect(((b.fields as unknown[]) ?? []).length).toBeLessThanOrEqual(10);
+        }
+  });
+
+  it("same order for every role: header, context, then at most 6 information blocks before the first control", () => {
+    for (const role of ROLES) {
+      const dm = dmFor(role, snap(NUVOLA), { decisions: [] })!;
+      expect(dm.blocks[1].type, role).toBe("context");
+      const firstControl = dm.blocks.findIndex((b) => b.type === "divider" || b.type === "actions");
+      expect(firstControl === -1 ? dm.blocks.length : firstControl, role).toBeLessThanOrEqual(8);
+    }
+  });
+
+  it("context shows the CNIL deadline only to roles with the clock; the DPO and the lawyer get a View details button", () => {
+    const ctx = (role: Role) => JSON.stringify(dmFor(role)!.blocks[1]);
+    expect(ctx("dpo")).toContain("CNIL deadline: *07/10/2026 09:12* Paris (provisional)");
+    expect(ctx("management")).toContain("CNIL deadline");
+    for (const role of ["it", "business_owner"] as const) expect(ctx(role), role).not.toMatch(/CNIL|Severity/);
+    for (const role of ROLES) expect(allActionIds(dmFor(role)).includes("dm_details"), role).toBe(role === "dpo" || role === "lawyer");
+    const dm = dmFor("lawyer")!;
+    expect(dm.details.join("\n")).toContain("GDPR Art. 33(1)");
+    expect(JSON.stringify(dm.blocks)).not.toContain("GDPR Art. 33(1)"); // reasons and legal refs only behind View details
+    expect(JSON.stringify(dm.blocks)).toContain("*Personal data*\\nYes · to confirm");
   });
 });
 
