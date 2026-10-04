@@ -91,6 +91,16 @@ describe("role scoping (Nuvola, severity average)", () => {
     expect(sev.options.map((o) => JSON.parse(o.value))).toContainEqual({ incidentId: INCIDENT_ID, severity: "major" });
   });
 
+  it("as processor, only the client notification is ours to sign: no CNIL / people buttons, nothing else 'needed'", () => {
+    const s = snap({ ...NUVOLA, processing_role: "processor", contract_mandate: true });
+    for (const k of Object.keys(s.facts)) s.facts[k] = { ...s.facts[k], state: "confirmed", method: "human", confirmedBy: "Cécile" };
+    expect(evaluate(s).obligations.find((o) => o.id === "gdpr.notify_authority")?.status).toBe("controller_duty");
+    const signs = (role: Role) => allActionIds(dmFor(role, s)).filter((i) => i.startsWith("sign_decision"));
+    expect(signs("dpo")).toEqual(["sign_decision:gdpr.notify_controller"]);
+    expect(signs("lawyer")).toEqual(["sign_decision:gdpr.notify_controller"]);
+    expect(dmFor("lawyer", s)?.all).toMatch(/decision is needed:\* client\./);
+  });
+
   it("severity and awareness are the DPO's; signing buttons only go to SIGNERS, each with its own stage", () => {
     for (const role of Role.options) {
       const dm = dmFor(role, snap(NUVOLA));
