@@ -22,6 +22,7 @@ type Timeline = { firstSignalAt: string; awarenessAt: string | null };
 type Props = {
   title: string;
   brief: string;
+  reporter: string | null; // whoever ran /incident
   severity: Severity;
   live: boolean;
   obligations: Obligation[];
@@ -63,7 +64,7 @@ const crisisId = (iso: string) => {
   return `#${date} · ${time}`;
 };
 
-export function Hero({ title, brief, severity, live, obligations, tracks, timeline, now, onOpenJournal }: Props) {
+export function Hero({ title, brief, reporter, severity, live, obligations, tracks, timeline, now, onOpenJournal }: Props) {
   // The nearest hard deadline among obligations that still ask something of us.
   const primary = dueItems(
     obligations.filter((o) => ACTIVE.has(o.status)),
@@ -87,7 +88,7 @@ export function Hero({ title, brief, severity, live, obligations, tracks, timeli
             <span
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-                live ? "bg-emerald-500/12 text-emerald-300" : "bg-muted text-muted-foreground",
+                live ? "bg-emerald-500/12 text-emerald-700" : "bg-muted text-muted-foreground",
               )}
             >
               <Activity className="size-3.5" />
@@ -95,7 +96,10 @@ export function Hero({ title, brief, severity, live, obligations, tracks, timeli
             </span>
           </div>
 
-          <span className="font-mono text-sm tracking-wide text-muted-foreground tabular-nums">{crisisId(timeline.firstSignalAt)}</span>
+          <span className="font-mono text-sm tracking-wide text-muted-foreground tabular-nums">
+            {crisisId(timeline.firstSignalAt)}
+            {reporter && <span className="font-sans tracking-normal"> · reported by {reporter} on Slack</span>}
+          </span>
           <h1 className="font-serif text-5xl font-semibold leading-[1.05] tracking-tight text-primary sm:text-6xl lg:text-7xl">{title}</h1>
           <p className="max-w-[70ch] text-base leading-relaxed text-foreground/85">{brief}</p>
         </div>

@@ -22,17 +22,17 @@ export const metadata: Metadata = {
   description: "Live reports of the incidents reported on Slack.",
 };
 
-// Dark only: the reports are read on a dark ground, like the reference design.
+// Light only, like the reference design on paper.
 export const viewport: Viewport = {
-  colorScheme: "dark",
-  themeColor: "#121418",
+  colorScheme: "light",
+  themeColor: "#f6f6f4",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`dark ${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <p
