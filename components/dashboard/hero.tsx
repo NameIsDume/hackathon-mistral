@@ -43,7 +43,7 @@ function rows(obligations: Obligation[], tracks: ScenarioTrack[], timeline: Time
     if (!ACTIVE.has(o.status)) return { ...base, value: STATUS_LABEL[o.status].toLowerCase(), tone: "muted" };
     if (!o.deadline) return { ...base, value: "ongoing", tone: "normal" };
     const c = deadline(o.deadline, timeline, new Date(now));
-    if (!("remainingMs" in c)) return { ...base, value: "without undue delay", tone: "normal" };
+    if (!("remainingMs" in c)) return { ...base, value: "as soon as possible", tone: "normal" };
     return { ...base, value: formatDHM(c.remainingMs), tone: c.overdue ? "late" : "normal" };
   });
   for (const t of tracks) {
@@ -51,7 +51,7 @@ function rows(obligations: Obligation[], tracks: ScenarioTrack[], timeline: Time
     out.push({ id: t.id, label: t.label, sub: t.basis, value: remaining === null ? "no deadline" : formatDHM(remaining), tone: remaining !== null && remaining <= 0 ? "late" : "normal" });
   }
   // Countdowns first, then "without undue delay", "ongoing", and the muted ones last.
-  const rank = (r: Row) => (r.tone === "muted" ? 3 : r.value === "ongoing" ? 2 : r.value === "without undue delay" ? 1 : 0);
+  const rank = (r: Row) => (r.tone === "muted" ? 3 : r.value === "ongoing" ? 2 : r.value === "as soon as possible" ? 1 : 0);
   return out.sort((a, b) => rank(a) - rank(b));
 }
 

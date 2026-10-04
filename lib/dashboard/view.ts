@@ -52,6 +52,18 @@ export const NOTIFICATION_KIND_LABEL: Record<
   decision: "Decision",
 };
 
+// What a Slack message was about, in a few words: never the raw message (Slack markup, fact keys).
+export const notificationDetail = (n: Extract<EventRow, { type: "notification" }>) =>
+  n.preview.startsWith("Reasoning memo")
+    ? "Why the app suggests what it does (AI memo)"
+    : ({
+        brief: "Told that an incident was reported",
+        questions: "Asked for the facts they know",
+        assessment: "Case summary and what the app suggests",
+        management_note: "Short note for management",
+        decision: "Asked to decide",
+      } as const)[n.kind];
+
 export const ANSWER_LABEL: Record<Extract<IncidentEvent, { type: "answer" }>["answer"], string> = {
   yes: "Yes",
   no: "No",

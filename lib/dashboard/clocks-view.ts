@@ -5,18 +5,18 @@ import type { Obligation, ObligationStatus } from "@/lib/domain";
 
 export const OBLIGATION_LABEL: Record<string, string> = {
   "gdpr.notify_authority": "CNIL notification",
-  "gdpr.inform_subjects": "Inform the people concerned",
+  "gdpr.inform_subjects": "Tell the people affected",
   "gdpr.record_breach": "Breach register",
-  "gdpr.notify_controller": "Inform the client (controller)",
+  "gdpr.notify_controller": "Tell the client",
 };
 
 export const obligationLabel = (id: string) => OBLIGATION_LABEL[id] ?? id;
 
 export const OBLIGATION_SUB: Record<string, string> = {
-  "gdpr.notify_authority": "GDPR Art. 33",
-  "gdpr.inform_subjects": "GDPR Art. 34",
-  "gdpr.record_breach": "GDPR Art. 33(5)",
-  "gdpr.notify_controller": "GDPR Art. 33(2)",
+  "gdpr.notify_authority": "within 72 hours",
+  "gdpr.inform_subjects": "if the risk to them is high",
+  "gdpr.record_breach": "keep it up to date",
+  "gdpr.notify_controller": "only for a client's data",
 };
 
 export const STATUS_LABEL: Record<ObligationStatus, string> = {
