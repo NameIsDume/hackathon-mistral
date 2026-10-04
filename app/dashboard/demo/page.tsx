@@ -2,8 +2,8 @@ import { Dashboard } from "@/components/dashboard/dashboard";
 import { mockAssessment, mockEvents, mockIncident, mockScenarioTracks, mockSnapshot } from "@/lib/dashboard/mock";
 
 export const metadata = {
-  title: "Suivi d'incident",
-  description: "Incident, messages Slack par rôle, réponses et horloges d'obligations.",
+  title: "Incident report (demo)",
+  description: "Fictitious incident: Slack messages per role, answers and obligation clocks.",
 };
 
 // Render at request time so the countdown seed reflects "now", not build time.
@@ -16,6 +16,7 @@ export default function DashboardPage() {
     <Dashboard
       incident={mockIncident}
       severity={mockSnapshot.severity}
+      facts={mockSnapshot.facts}
       obligations={mockAssessment.obligations}
       events={mockEvents}
       tracks={mockScenarioTracks}

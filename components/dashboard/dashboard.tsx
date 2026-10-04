@@ -27,6 +27,7 @@ type Incident = {
 type Props = {
   incident: Incident;
   severity: Fact<Severity>;
+  facts: Record<string, Fact<unknown>>;
   obligations: Obligation[];
   events: EventRow[];
   tracks: ScenarioTrack[];
@@ -35,7 +36,7 @@ type Props = {
 
 // Read-only: events, severity and obligations always come from the server; Realtime
 // only triggers a refresh (LiveRefresh) so the real rules recompute the assessment.
-export function Dashboard({ incident, severity, obligations, events, tracks, nowSeed }: Props) {
+export function Dashboard({ incident, severity, facts, obligations, events, tracks, nowSeed }: Props) {
   const [now, setNow] = useState(nowSeed);
   // Resolved once at mount; consistent between SSR and client (env is inlined), so no hydration flash.
   const [live] = useState(() => getSupabaseBrowser() !== null);
@@ -57,7 +58,7 @@ export function Dashboard({ incident, severity, obligations, events, tracks, now
   return (
     <div className="min-h-screen bg-background">
       <LiveRefresh incidentId={incident.id} />
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-7 p-5 sm:p-7">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 py-6 sm:p-8">
         <Hero
           title={incident.title}
           brief={incident.brief}
@@ -70,17 +71,24 @@ export function Dashboard({ incident, severity, obligations, events, tracks, now
           onOpenJournal={openJournal}
         />
 
-        <Kanban events={events} obligations={obligations} severity={severity} awarenessAt={incident.awarenessAt} />
+        <Kanban
+          events={events}
+          obligations={obligations}
+          severity={severity}
+          facts={facts}
+          startAt={incident.awarenessAt ?? incident.firstSignalAt}
+          now={now}
+        />
 
-        <Disclosure label="Points de blocage">
+        <Disclosure label="Blockers">
           <BlockersBox events={events} obligations={obligations} awarenessAt={incident.awarenessAt} />
         </Disclosure>
 
-        <Disclosure id="journal" label="Journal de l'incident" count={events.length} open={journalOpen} onOpenChange={setJournalOpen}>
+        <Disclosure id="journal" label="Incident log" count={events.length} open={journalOpen} onOpenChange={setJournalOpen}>
           <EventTimeline events={events} />
         </Disclosure>
 
-        <Disclosure label="Détails & obligations">
+        <Disclosure label="Details & obligations">
           <div className="flex flex-col gap-8">
             <ObligationClocks obligations={obligations} timeline={timeline} tracks={tracks} now={now} />
             <RoleThreads events={events} />

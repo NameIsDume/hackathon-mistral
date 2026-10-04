@@ -7,7 +7,7 @@ import { GDPR_FACTS, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
 import { evaluate } from "@/lib/regulations/gdpr";
 import { db, listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
 import { ANSWER_LABEL, context, openDm, openView, option, plain, postDm, section, sections, updateMessage, type Block } from "@/lib/adapters/slack";
-import { buildDm, type DmContext, factState, formatLeft, isBooleanFact, notifyWave, OBLIGATION_LABEL, recordWithRetry, showValue } from "@/lib/services/notify";
+import { buildDm, type DmContext, factLabel, formatLeft, PLAIN, PLAIN_CHOICE, PLAIN_STATUS, plainReason, isBooleanFact, notifyWave, OBLIGATION_LABEL, recordWithRetry, showValue } from "@/lib/services/notify";
 import { confirmSeverity, InvalidAwareness, setAwareness } from "@/lib/services/review";
 import { decide, DECIDABLE_OBLIGATIONS, decisionStatus, DecisionRefused, flagFor, needsOverride, SIGNERS, type Stage } from "@/lib/services/decide";
 import { deadline, formatParis } from "@/lib/clocks";
@@ -205,6 +205,9 @@ function factModal(meta: z.infer<typeof FactMeta>): Block {
   };
 }
 
+const shortFactState = (f: Fact<unknown> | undefined) =>
+  !f || f.value === null || f.state === "disputed" ? "unknown" : f.state === "confirmed" ? "confirmed" : "suggested by the AI";
+
 // Q9/Q10/Q7/Q8: one modal for the DPO recommendation and the lawyer decision. Every reasons field is optional for Slack:
 // decide() checks what the chosen option requires and the error comes back on the field concerned.
 async function decisionModal(meta: z.infer<typeof SignMeta>): Promise<Block> {
@@ -216,16 +219,19 @@ async function decisionModal(meta: z.infer<typeof SignMeta>): Promise<Block> {
   const left = clock?.dueAt ? formatLeft(clock.remainingMs) : null;
   const rec = decisionStatus(events).find((x) => x.obligationId === meta.obligationId && x.stage === "recommendation");
   const flag = flagFor(o, "notify");
-  const status = o ? `${o.status.replaceAll("_", " ")}${o.factsToConfirm.length ? ` (facts to confirm: ${o.factsToConfirm.join(", ")})` : ""}` : "unknown";
+  const plain_ = PLAIN[meta.obligationId];
   const intro = [
-    `*${OBLIGATION_LABEL[meta.obligationId]}*`,
-    `Computed result: *${status}*`,
-    o?.reasons.join("\n"),
-    clock?.dueAt && `72 h CNIL deadline: ${formatParis(clock.dueAt)} (${left})`,
+    `*${plain_.question}*`,
+    o && `What the app suggests: *${PLAIN_STATUS[o.status] ?? o.status.replaceAll("_", " ")}*`,
+    o?.factsToConfirm.length && `Still to be confirmed: ${o.factsToConfirm.map((k) => factLabel(k).toLowerCase()).join(", ")}.`,
+    o?.reasons.length && `Why: ${o.reasons.map(plainReason).join(" ")}`,
+    clock?.dueAt && `CNIL deadline: ${formatParis(clock.dueAt)} (${left})`,
     meta.stage === "decision" &&
-      (rec ? `DPO recommendation: *${rec.decision.choice.replaceAll("_", " ")}* by ${rec.decision.by.name}\n> ${rec.decision.reasons.slice(0, 800).replaceAll("\n", "\n> ")}` : "No DPO recommendation yet."),
-    flag && `_Notifying stays possible but is flagged (${flag}); explain why in your own words._`,
-    meta.stage === "decision" ? "_You sign the decision, with structured reasons (GDPR Art. 33(5))._" : "_You record the DPO recommendation; the lawyer signs the decision._",
+      (rec
+        ? `${rec.decision.by.name} (DPO) recommends: *${PLAIN_CHOICE[rec.decision.choice] ?? rec.decision.choice}*\n> ${rec.decision.reasons.slice(0, 800).replaceAll("\n", "\n> ")}`
+        : "The DPO has not given a recommendation yet."),
+    flag && "_The app says this is not needed. You can still go ahead: just say why below._",
+    meta.stage === "decision" ? "_Your decision and your reasons are saved in the incident file._" : "_This is your advice. The lawyer makes the final call._",
   ];
   const input = (id: string, label: string, element: Block, hint?: string, optional = true): Block => ({
     type: "input",
@@ -240,30 +246,30 @@ async function decisionModal(meta: z.infer<typeof SignMeta>): Promise<Block> {
     section(intro.filter(Boolean).join("\n")),
     input(
       "choice",
-      meta.stage === "decision" ? "Decision" : "Recommendation",
+      meta.stage === "decision" ? "Your decision" : "Your advice",
       {
         type: "radio_buttons",
-        options: [option("notify", "Notify / inform"), option("do_not_notify", "Do not notify"), option("defer", `Defer pending facts${left ? ` (72 h deadline: ${left})` : ""}`)],
+        options: [option("notify", plain_.yes), option("do_not_notify", plain_.no), option("defer", `Wait for more facts${left ? ` (CNIL deadline: ${left})` : ""}`)],
       },
       undefined,
       false,
     ),
     input(
       "factsReliedOn",
-      "Facts relied on",
-      { type: "multi_static_select", options: Object.keys(GDPR_FACTS).map((k) => option(k, `${k}: ${snapshot.facts[k] ? factState(snapshot.facts[k]) : "unknown"}`)) },
-      "Required unless you defer.",
+      "Which facts matter most here?",
+      { type: "multi_static_select", options: Object.keys(GDPR_FACTS).map((k) => option(k, `${factLabel(k)} (${shortFactState(snapshot.facts[k])})`)) },
+      "Pick a few. Not needed if you wait for more facts.",
     ),
-    input("riskFactors", "Risk factors considered", text, "Required unless you defer."),
-    input("exceptionRelied", "Exception relied on", { type: "plain_text_input", max_length: 500 }, "Required when not notifying, e.g. Art. 33(1) risk unlikely, Art. 34(3)(a) encrypted."),
-    input("evidence", "Evidence for the exception", text, "Required when not notifying."),
+    input("riskFactors", "What could go wrong for the people affected?", text, "For example: their emails could be used for phishing. Not needed if you wait."),
+    input("exceptionRelied", "If you say no: why is it safe?", { type: "plain_text_input", max_length: 500 }, "For example: the files were encrypted and the key is safe, or the risk to people is very low."),
+    input("evidence", "If you say no: how do we know?", text, "For example: IT checked the encryption, or every copy was deleted."),
   ];
-  if (clock?.dueAt && clock.overdue) blocks.push(input("delayReason", "Reasons for the delay (72 h passed)", text, "Art. 33(1).", false));
-  blocks.push(input("freeText", "In your own words", text, 'Required when not notifying, when notifying against "not required", and when deferring (which facts you wait for).'));
+  if (clock?.dueAt && clock.overdue) blocks.push(input("delayReason", "Why is this later than 72 hours?", text, "The CNIL asks for the reason when a notification is late.", false));
+  blocks.push(input("freeText", "Anything else, in your own words", text, "Needed if you say no, if you go against the app's suggestion, or if you wait (say which facts you are waiting for)."));
   if (needsOverride(o))
-    blocks.push(input("override", "Override", { type: "checkboxes", options: [option("yes", "If not notifying: I decide against the computed result")] }));
-  const title = meta.stage === "decision" ? "Sign the decision" : "Recommend";
-  return { type: "modal", callback_id: "sign_decision", private_metadata: JSON.stringify(meta), title: plain(title, 24), submit: plain(meta.stage === "decision" ? "Sign" : "Record", 24), close: plain("Cancel", 24), blocks };
+    blocks.push(input("override", "Going against the app", { type: "checkboxes", options: [option("yes", "If I say no: I choose this even though the app suggests otherwise")] }));
+  const title = meta.stage === "decision" ? "Your decision" : "Your advice";
+  return { type: "modal", callback_id: "sign_decision", private_metadata: JSON.stringify(meta), title: plain(title, 24), submit: plain(meta.stage === "decision" ? "Sign" : "Send", 24), close: plain("Cancel", 24), blocks };
 }
 
 // Q14: the lawyer's follow-up question to the DPO, and the lawyer's request for more facts.

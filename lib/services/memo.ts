@@ -9,11 +9,11 @@ import { z } from "zod";
 import type { Assessment, IncidentSnapshot, ObligationStatus, Role } from "@/lib/domain";
 import { callMistral, GUARD } from "@/lib/adapters/mistral";
 import { db, listEvents, loadSnapshot } from "@/lib/adapters/supabase";
-import { button, header, openDm, postDm, section, updateMessage, type Block } from "@/lib/adapters/slack";
+import { button, context, divider, header, openDm, postDm, section, updateMessage, type Block } from "@/lib/adapters/slack";
 import { evaluate } from "@/lib/regulations/gdpr";
 import { GDPR_FACTS } from "@/lib/regulations/gdpr/facts";
 import { decisionStatus, type DecisionStatus } from "@/lib/services/decide";
-import { OBLIGATION_LABEL, recordWithRetry } from "@/lib/services/notify";
+import { factLabel, OBLIGATION_LABEL, PLAIN, plainReason, recordWithRetry } from "@/lib/services/notify";
 import type { Outcome } from "@/lib/services/slack-actions";
 
 export const MEMO_TITLE = "Reasoning memo (AI, for review)";
@@ -166,22 +166,40 @@ export async function buildMemo(
 // Slack
 // ---------------------------------------------------------------------------
 
+// Phone first (the demo is shown on a phone): one short card per decision, plain words, no legal references.
+const CHIP: Record<string, string> = {
+  required: "🟠 Needed",
+  undetermined: "🟡 Your call",
+  not_required: "🟢 Not needed",
+  controller_duty: "⚪ The client's job",
+  controller_decides: "⚪ The client decides",
+};
+const QUESTION: Record<string, string> = { ...Object.fromEntries(Object.entries(PLAIN).map(([k, v]) => [k, v.question])), "gdpr.record_breach": "Should we log it in our breach register?" };
+const short = (t: string, n = 160) => {
+  const p = plainReason(t);
+  return p.length > n ? `${p.slice(0, n - 1)}…` : p;
+};
+
 export function memoMessage(incidentId: string, memo: Memo, assessment: Assessment): { blocks: Block[]; text: string } {
-  const status = new Map(assessment.obligations.map((o) => [o.id, o.status.replaceAll("_", " ")]));
+  const status = new Map(assessment.obligations.map((o) => [o.id, o.status]));
   const versions = `Facts v${assessment.factsVersion}, rules gdpr ${assessment.moduleVersion}`;
+  const sources = memo.obligations.reduce((n, o) => n + o.citations.length, 0);
+  const cards = memo.obligations.flatMap((o) => {
+    const lines = [
+      o.strengths[0] && `👍 ${short(o.strengths[0])}`,
+      o.weaknesses[0] && `👎 ${short(o.weaknesses[0])}`,
+      o.missingFacts.length && `❓ Still missing: ${o.missingFacts.map((k) => factLabel(k).toLowerCase()).join(", ")}`,
+    ].filter(Boolean);
+    const st = status.get(o.obligationId);
+    return [divider, section(`*${QUESTION[o.obligationId] ?? OBLIGATION_LABEL[o.obligationId] ?? o.obligationId}*   ${st ? (CHIP[st] ?? st) : ""}\n${lines.join("\n")}`)];
+  });
   const blocks: Block[] = [
-    header(MEMO_TITLE),
-    section(`_Explains the computed statuses, does not decide. ${versions}._`),
-    ...(memo.summary.length ? [section(memo.summary.join("\n"))] : []),
-    ...memo.obligations.map((o) => {
-      const bullets = [
-        o.strengths[0] && `• + ${o.strengths[0]}`,
-        o.weaknesses[0] && `• − ${o.weaknesses[0]}`,
-        o.missingFacts.length && `• Missing: ${o.missingFacts.join(", ")}`,
-      ].filter(Boolean);
-      const cites = o.citations.length ? ` · _${o.citations.join("; ")}_` : "";
-      return section(`*${OBLIGATION_LABEL[o.obligationId] ?? o.obligationId}* (${status.get(o.obligationId)})${cites}\n${bullets.join("\n")}`);
-    }),
+    header("Why the app suggests this"),
+    context("Written by AI to help you decide. It does not decide for you."),
+    ...(memo.summary.length ? [section(memo.summary.slice(0, 2).map((t) => short(t, 240)).join(" "))] : []),
+    ...cards,
+    divider,
+    context(`Checked against the rules${sources ? ` and ${sources} passage${sources === 1 ? "" : "s"} of the lawyers' decisions` : ""}.`),
     { type: "actions", elements: [button("Regenerate", MEMO_ACTION, JSON.stringify({ incidentId }))] },
   ];
   return { blocks: blocks.slice(0, 50), text: `${MEMO_TITLE}, ${versions}: ${memo.summary.join(" ")}` };

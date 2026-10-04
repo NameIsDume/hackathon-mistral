@@ -1,52 +1,68 @@
-import { Card } from "@/components/ui/card";
-import { deriveColumns, TASK_STATUS_LABEL, TASK_STATUS_TONE } from "@/lib/dashboard/tasks";
+import { deriveColumns, formatDue, isOverdue, TASK_STATUS_LABEL, TASK_STATUS_TONE } from "@/lib/dashboard/tasks";
 import { ROLE_LABEL, type EventRow } from "@/lib/dashboard/view";
 import type { Fact, Obligation, Severity } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
+// Read-only: one row per person, their tasks as cards. Everything is done from Slack.
 export function Kanban({
   events,
   obligations,
   severity,
-  awarenessAt,
+  facts,
+  startAt,
+  now,
 }: {
   events: EventRow[];
   obligations: Obligation[];
   severity: Fact<Severity>;
-  awarenessAt: string | null;
+  facts: Record<string, Fact<unknown>>;
+  startAt: string; // awareness, fallback first signal: relative deadlines count from here
+  now: number;
 }) {
-  const columns = deriveColumns(events, obligations, severity, awarenessAt);
+  const columns = deriveColumns(events, obligations, severity, facts);
+  const done = columns.reduce((n, c) => n + c.done, 0);
+  const total = columns.reduce((n, c) => n + c.total, 0);
+  const startMs = Date.parse(startAt);
 
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex items-baseline gap-2">
-        <h2 className="text-sm font-semibold">Qui fait quoi</h2>
-        <span className="text-xs text-muted-foreground">· suivi par personne</span>
+    <section className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
+        <h2 className="font-serif text-3xl font-semibold">Who does what</h2>
+        <span className="font-mono text-sm text-muted-foreground tabular-nums">
+          {done} of {total} actions done
+        </span>
       </div>
 
-      <div className="grid auto-cols-[minmax(15rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2 lg:grid-flow-row lg:auto-cols-auto lg:grid-cols-5">
+      <div className="flex flex-col divide-y divide-border">
         {columns.map((col) => (
-          <div key={col.role} className="flex min-w-0 flex-col gap-3">
-            <div className="flex items-baseline justify-between gap-2 border-b border-border pb-2">
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{ROLE_LABEL[col.role]}</p>
-                <p className="truncate text-sm font-semibold">{col.name}</p>
-              </div>
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                {col.done}/{col.total}
-              </span>
+          <div key={col.role} className="grid gap-4 py-5 first:pt-0 md:grid-cols-[13rem_1fr] md:gap-6">
+            <div className="flex flex-col gap-1">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{ROLE_LABEL[col.role]}</p>
+              <p className="font-serif text-xl font-semibold leading-tight">{col.name}</p>
+              <p className="font-mono text-xs text-muted-foreground tabular-nums">
+                {col.done} / {col.total} done
+              </p>
             </div>
 
-            <div className="flex flex-col gap-2.5">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {col.tasks.map((t) => (
-                <Card key={t.id} size="sm" className="gap-2 p-3.5">
-                  <span className={cn("w-fit rounded-full px-2 py-0.5 text-[11px] font-medium", TASK_STATUS_TONE[t.status])}>
-                    {TASK_STATUS_LABEL[t.status]}
-                  </span>
-                  <p className="text-sm font-medium leading-snug">{t.title}</p>
+                <div key={t.id} className="flex flex-col gap-2.5 rounded-lg border border-border bg-card p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", TASK_STATUS_TONE[t.status])}>
+                      {TASK_STATUS_LABEL[t.status]}
+                    </span>
+                    <span
+                      className={cn(
+                        "font-mono text-xs tabular-nums",
+                        isOverdue(t, startMs, now) ? "text-destructive" : "text-muted-foreground",
+                      )}
+                    >
+                      {formatDue(t.due)}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-snug">{t.title}</p>
                   {t.hint && <p className="text-xs leading-snug text-destructive">{t.hint}</p>}
-                  {t.meta && <p className="text-xs text-muted-foreground tabular-nums">{t.meta}</p>}
-                </Card>
+                </div>
               ))}
             </div>
           </div>
