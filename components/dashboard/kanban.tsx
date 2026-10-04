@@ -48,7 +48,7 @@ export function Kanban({
         </span>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(12rem,1fr))] gap-6">
         {columns.map((col) => {
           const open = col.tasks.filter((t) => t.status !== "done" || fresh(t.id));
           const backlog = col.tasks.filter((t) => t.status === "done" && !fresh(t.id));
@@ -73,12 +73,12 @@ export function Kanban({
                     )}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", TASK_STATUS_TONE[t.status])}>
+                      <span className={cn("shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium", TASK_STATUS_TONE[t.status])}>
                         {TASK_STATUS_LABEL[t.status]}
                       </span>
                       <span
                         className={cn(
-                          "font-mono text-xs tabular-nums",
+                          "text-right font-mono text-xs tabular-nums",
                           !justDone && isOverdue(t, startMs, now) ? "text-destructive" : "text-muted-foreground",
                         )}
                       >
@@ -100,7 +100,7 @@ export function Kanban({
                   <ul className="mt-3 flex flex-col gap-2">
                     {backlog.map((t) => (
                       <li key={t.id} className="flex gap-2 text-xs leading-snug text-muted-foreground">
-                        <span className="text-emerald-400">✓</span>
+                        <span className="text-emerald-600">✓</span>
                         <span>{t.title}</span>
                       </li>
                     ))}
