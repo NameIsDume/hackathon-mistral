@@ -1,0 +1,62 @@
+{
+  "text": "I think I clicked a phishing link. My laptop is acting weird and I can't access the CRM. Some client exports are gone.",
+  "recordedFrom": "mistral-medium-2604",
+  "recordedAt": "2026-10-04",
+  "output": {
+    "brief": "Employee suspects phishing link click; laptop issues and missing client CRM exports reported.",
+    "severity": "major",
+    "facts": {
+      "personal_data": {
+        "value": null,
+        "excerpt": null
+      },
+      "breach_type": {
+        "value": [
+          "confidentiality",
+          "integrity"
+        ],
+        "excerpt": "I think I clicked a phishing link. My laptop is acting weird and I can't access the CRM. Some client exports are gone."
+      },
+      "data_categories": {
+        "value": null,
+        "excerpt": null
+      },
+      "subjects_count": {
+        "value": null,
+        "excerpt": null
+      },
+      "subjects_categories": {
+        "value": null,
+        "excerpt": null
+      },
+      "encrypted": {
+        "value": null,
+        "excerpt": null
+      },
+      "keys_safe": {
+        "value": null,
+        "excerpt": null
+      },
+      "still_exposed": {
+        "value": null,
+        "excerpt": null
+      },
+      "malicious": {
+        "value": null,
+        "excerpt": null
+      },
+      "measures_taken": {
+        "value": null,
+        "excerpt": null
+      },
+      "processing_role": {
+        "value": null,
+        "excerpt": null
+      },
+      "cross_border": {
+        "value": null,
+        "excerpt": null
+      }
+    }
+  }
+}
