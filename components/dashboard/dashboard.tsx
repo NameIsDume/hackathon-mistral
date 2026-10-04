@@ -88,7 +88,7 @@ export function Dashboard({ incident, severity, facts, obligations, events, trac
           <EventTimeline events={events} />
         </Disclosure>
 
-        <Disclosure label="Details & obligations">
+        <Disclosure label="Details">
           <div className="flex flex-col gap-8">
             <ObligationClocks obligations={obligations} timeline={timeline} tracks={tracks} now={now} />
             <RoleThreads events={events} />
