@@ -50,43 +50,43 @@
 }
 
 /*
-  Dark only (the html carries .dark so the dark: variants apply): near-black ground,
-  slightly lighter panels, hairline borders, light grey text, one red/coral accent.
+  Light only: warm off-white ground, white panels, hairline borders, near-black text,
+  one deep red accent (the reference design, on paper).
 */
 :root {
-  color-scheme: dark;
-  --background: #121418;
-  --foreground: #e4e6ea;
-  --card: #1a1d23;
-  --card-foreground: #e4e6ea;
-  --popover: #1a1d23;
-  --popover-foreground: #e4e6ea;
-  --primary: #d9534f;
-  --primary-foreground: #fff5f4;
-  --secondary: #23272e;
-  --secondary-foreground: #e4e6ea;
-  --muted: #23272e;
-  --muted-foreground: #8b919c;
-  --accent: #23272e;
-  --accent-foreground: #e4e6ea;
-  --destructive: #e5605b;
-  --border: #2a2e36;
-  --input: #2a2e36;
-  --ring: rgb(217 83 79 / 0.45);
-  --chart-1: #d9534f;
+  color-scheme: light;
+  --background: #f6f6f4;
+  --foreground: #17191e;
+  --card: #ffffff;
+  --card-foreground: #17191e;
+  --popover: #ffffff;
+  --popover-foreground: #17191e;
+  --primary: #c23b36;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0f2;
+  --secondary-foreground: #17191e;
+  --muted: #eef0f2;
+  --muted-foreground: #5f6672;
+  --accent: #eef0f2;
+  --accent-foreground: #17191e;
+  --destructive: #c62828;
+  --border: #e2e4e8;
+  --input: #e2e4e8;
+  --ring: rgb(194 59 54 / 0.35);
+  --chart-1: #c23b36;
   --chart-2: oklch(0.78 0.15 62);
   --chart-3: oklch(0.65 0.13 250);
   --chart-4: oklch(0.68 0.13 155);
   --chart-5: oklch(0.62 0.19 15);
   --radius: 0.7rem;
-  --sidebar: #1a1d23;
-  --sidebar-foreground: #e4e6ea;
-  --sidebar-primary: #d9534f;
-  --sidebar-primary-foreground: #fff5f4;
-  --sidebar-accent: #23272e;
-  --sidebar-accent-foreground: #e4e6ea;
-  --sidebar-border: #2a2e36;
-  --sidebar-ring: rgb(217 83 79 / 0.45);
+  --sidebar: #ffffff;
+  --sidebar-foreground: #17191e;
+  --sidebar-primary: #c23b36;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef0f2;
+  --sidebar-accent-foreground: #17191e;
+  --sidebar-border: #e2e4e8;
+  --sidebar-ring: rgb(194 59 54 / 0.35);
 }
 
 @layer base {

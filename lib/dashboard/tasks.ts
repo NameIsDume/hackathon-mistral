@@ -48,7 +48,7 @@ export const isOverdue = (t: Task, startMs: number, now: number) =>
   t.status !== "done" && typeof t.due === "number" && now > startMs + t.due * 3_600_000;
 
 // Rows read top-down in the order the work flows: the DPO steers, then the people who answer, then sign-off.
-const ROLE_ORDER: Role[] = ["dpo", "it", "business_owner", "lawyer", "management", "communications", "reporter"];
+const ROLE_ORDER: Role[] = ["reporter", "dpo", "it", "business_owner", "lawyer", "management", "communications"];
 
 // Decisions the DPO recommends and the lawyer signs (lib/services/decide.ts DECIDABLE_OBLIGATIONS).
 export const DECIDABLE: Record<string, string> = {
@@ -62,6 +62,9 @@ const needsAction = (o: Obligation | undefined): o is Obligation => o?.status ==
 type NotifRow = Extract<EventRow, { type: "notification" }>;
 type DecisionRow = Extract<EventRow, { type: "decision" }>;
 type DraftRow = Extract<EventRow, { type: "draft" }>;
+
+// "Wael Ben Slima (slack:U0…)" -> "Wael Ben Slima".
+export const reporterName = (actor: string) => actor.replace(/\s*\(slack:[^)]*\)$/, "");
 
 export function deriveColumns(
   events: EventRow[],
@@ -78,6 +81,10 @@ export function deriveColumns(
     if (ev.type === "notification") p.notifs.push(ev);
     people.set(who.role, p);
   }
+
+  // The person who ran /incident: the signal's actor, without the Slack id.
+  const signal = events.find((e) => e.type === "signal");
+  if (signal) people.set("reporter", { name: reporterName(signal.actor), notifs: [] });
 
   const decisions = events.filter((e): e is DecisionRow => e.type === "decision");
   const signed = (id: string, stage: "recommendation" | "decision") =>
@@ -149,6 +156,8 @@ export function deriveColumns(
       if (needsAction(own("gdpr.record_breach")))
         tasks.push({ id: "register", title: "Keep the breach register up to date", due: "ongoing", status: "in_progress" });
     }
+
+    if (role === "reporter") tasks.push({ id: "report", title: "Reported the incident on Slack", due: 0, status: "done" });
 
     if (tasks.length === 0) continue;
     columns.push({ role, name: p.name, tasks, done: tasks.filter((t) => t.status === "done").length, total: tasks.length });

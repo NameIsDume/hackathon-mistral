@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Fact, Obligation, Severity } from "@/lib/domain";
-import { deriveColumns, formatDue, isOverdue } from "@/lib/dashboard/tasks";
+import { deriveColumns, formatDue, isOverdue, reporterName } from "@/lib/dashboard/tasks";
 import type { EventRow } from "@/lib/dashboard/view";
 
 const it_ = { role: "it" as const, name: "Timothé" };
@@ -56,4 +56,11 @@ describe("who does what", () => {
     expect(isOverdue(task("it", "q-gdpr.personal_data"), start, start + 13 * 3_600_000)).toBe(false);
     expect(formatDue(12)).toBe("T+12h");
   });
+});
+
+it("puts whoever ran /incident first, as the reporter, with the report done", () => {
+  const events = [{ id: 1, at: "2026-10-04T14:25:13Z", actor: "Wael Ben Slima (slack:U0C6)", type: "signal", signalId: "6f1c1b7e-0a7b-4a5e-9d4f-0f3b3c2a1d10", connectorId: "slack", excerpt: "x" }] as never;
+  expect(reporterName("Wael Ben Slima (slack:U0C6)")).toBe("Wael Ben Slima");
+  const [first] = deriveColumns(events, [], { value: null, state: "proposed", method: "llm", sources: [] }, {});
+  expect(first).toMatchObject({ role: "reporter", name: "Wael Ben Slima", done: 1, total: 1 });
 });

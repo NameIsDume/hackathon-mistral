@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import type { ScenarioTrack } from "@/lib/dashboard/mock";
+import { reporterName } from "@/lib/dashboard/tasks";
 import type { EventRow } from "@/lib/dashboard/view";
 import type { Fact, Obligation, Severity } from "@/lib/domain";
 import { BlockersBox } from "./blockers-box";
@@ -48,6 +49,8 @@ export function Dashboard({ incident, severity, facts, obligations, events, trac
   }, []);
 
   const timeline = { firstSignalAt: incident.firstSignalAt, awarenessAt: incident.awarenessAt };
+  const signal = events.find((e) => e.type === "signal");
+  const reporter = signal ? reporterName(signal.actor) : null;
   const [journalOpen, setJournalOpen] = useState(false);
 
   const openJournal = () => {
@@ -62,6 +65,7 @@ export function Dashboard({ incident, severity, facts, obligations, events, trac
         <Hero
           title={incident.title}
           brief={incident.brief}
+          reporter={reporter}
           severity={incident.severity}
           live={live}
           obligations={obligations}
