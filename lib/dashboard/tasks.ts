@@ -68,6 +68,7 @@ export function deriveColumns(
   obligations: Obligation[],
   severity: Fact<Severity>,
   facts: Record<string, Fact<unknown>>,
+  awarenessAt: string | null = null,
 ): Column[] {
   const people = new Map<Role, { name: string; notifs: NotifRow[] }>();
   for (const ev of events) {
@@ -107,8 +108,8 @@ export function deriveColumns(
         id: "awareness",
         title: "Confirm when we became aware (starts the 72 h clock)",
         due: TASK_DUE_HOURS.review,
-        // Intake pre-fills awareness from the report; only an explicit confirmation counts.
-        status: events.some((e) => e.type === "awareness") ? "done" : "in_progress",
+        // Intake sets awareness to the report time (#64); the DPO only corrects it if we knew later.
+        status: awarenessAt || events.some((e) => e.type === "awareness") ? "done" : "in_progress",
       });
     }
 
