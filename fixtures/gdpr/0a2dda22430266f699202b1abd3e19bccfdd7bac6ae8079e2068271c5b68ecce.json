@@ -56,6 +56,54 @@
       "cross_border": {
         "value": null,
         "excerpt": null
+      },
+      "records_count": {
+        "value": null,
+        "excerpt": null
+      },
+      "encryption_state_of_art": {
+        "value": null,
+        "excerpt": null
+      },
+      "encryption_covers_copies": {
+        "value": null,
+        "excerpt": null
+      },
+      "backup_exists": {
+        "value": null,
+        "excerpt": null
+      },
+      "data_left_control": {
+        "value": null,
+        "excerpt": null
+      },
+      "copies_recovered": {
+        "value": null,
+        "excerpt": null
+      },
+      "availability_restored": {
+        "value": null,
+        "excerpt": null
+      },
+      "contract_mandate": {
+        "value": null,
+        "excerpt": null
+      },
+      "can_contact_individually": {
+        "value": null,
+        "excerpt": null
+      },
+      "people_affected": {
+        "value": null,
+        "excerpt": null
+      },
+      "records_exists": {
+        "value": null,
+        "excerpt": null
+      },
+      "safe_channel": {
+        "value": null,
+        "excerpt": null
       }
     }
   }

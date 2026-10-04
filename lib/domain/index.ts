@@ -54,7 +54,9 @@ export const IncidentSnapshot = z.object({
 });
 export type IncidentSnapshot = z.infer<typeof IncidentSnapshot>;
 
-export const ObligationStatus = z.enum(["required", "not_required", "undetermined"]);
+// controller_duty / controller_decides: we are the confirmed processor, the obligation belongs to the client (controller).
+// They are shown instead of "not required" (lawyers' decisions 2026-10-04, Q3 and Q4) and, like it, need confirmed facts.
+export const ObligationStatus = z.enum(["required", "not_required", "undetermined", "controller_duty", "controller_decides"]);
 export type ObligationStatus = z.infer<typeof ObligationStatus>;
 
 export const Deadline = z.discriminatedUnion("policy", [

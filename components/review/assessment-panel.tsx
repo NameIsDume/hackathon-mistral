@@ -20,6 +20,8 @@ function StatusBadge({ o }: { o: Obligation }) {
   if (o.status === "required")
     return o.factsToConfirm.length ? <Badge variant="secondary">Required, facts to confirm</Badge> : <Badge variant="destructive">Required</Badge>;
   if (o.status === "not_required") return <Badge variant="outline">Not required</Badge>;
+  if (o.status === "controller_duty") return <Badge variant="outline">Controller&apos;s duty</Badge>;
+  if (o.status === "controller_decides") return <Badge variant="outline">Controller decides</Badge>;
   return <Badge variant="outline" className="border-dashed">Undetermined</Badge>;
 }
 
