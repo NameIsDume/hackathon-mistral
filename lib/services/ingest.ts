@@ -65,8 +65,9 @@ export async function ingestSignal(raw: IntakeInput, connectorId = "demo"): Prom
   if (sig.error) throw new Error(sig.error.message);
   const signalId = (sig.data as { id: string }).id;
 
-  // 2. Incident, linked to its signal.
-  const inc = await db().from("incidents").insert({ first_signal_at: occurredAt } as never).select("id").single();
+  // 2. Incident, linked to its signal. Awareness defaults to the report time (earliest, so the safest 72 h clock);
+  // the DPO can still correct it from Slack.
+  const inc = await db().from("incidents").insert({ first_signal_at: occurredAt, awareness_at: occurredAt } as never).select("id").single();
   if (inc.error) throw new Error(inc.error.message);
   const incidentId = (inc.data as { id: string }).id;
   const link = await db().from("signals").update({ incident_id: incidentId } as never).eq("id", signalId);
