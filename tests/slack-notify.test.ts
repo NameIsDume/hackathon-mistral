@@ -98,6 +98,11 @@ describe("role scoping (Nuvola, severity average)", () => {
     expect(dmFor("business_owner", s)?.all).toContain("Nothing more needed from you for now.");
   });
 
+  it("cuts the DM title at the first clause (semicolon included)", () => {
+    const dm = buildDm("lawyer", { snapshot: snap(NUVOLA), assessment: evaluate(snap(NUVOLA)), brief: "Employee suspects phishing link click; laptop behaves abnormally.", now });
+    expect(dm?.blocks[0]).toMatchObject({ type: "header", text: { text: "Incident · Employee suspects phishing link click" } });
+  });
+
   it("links the live report on the site, except for the reporter (Q12: no outcome)", () => {
     expect(dmFor("dpo")?.all).toContain(`https://hackathon-mistral.vercel.app/incidents/${INCIDENT_ID}|Live report`);
     expect(dmFor("reporter")?.all ?? "").not.toContain("/incidents/");
