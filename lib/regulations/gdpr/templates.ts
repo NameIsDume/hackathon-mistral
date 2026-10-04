@@ -3,7 +3,7 @@
 // in the Notion lawyers' workspace. Pure: no I/O; `now` is injected for the 72-hour check.
 // Rules (R11): every value comes from a fact or an event; an unknown value is written out literally, never left blank
 // or invented; a proposed (unconfirmed) fact is flagged; a draft is never "sent".
-import { deadline } from "@/lib/clocks";
+import { deadline, formatParis } from "@/lib/clocks";
 import type { Assessment, IncidentEvent, IncidentSnapshot, Obligation } from "@/lib/domain";
 import type { GdprFactKey } from "./facts";
 
@@ -31,14 +31,16 @@ function fact(snapshot: IncidentSnapshot, key: GdprFactKey, label: string, fmt: 
   return { label, value: fmt(f.value) + (f.state === "proposed" ? TO_CONFIRM : ""), missing: false, sourceFact: key };
 }
 
-const date = (label: string, iso: string | null) => (iso ? given(label, iso) : missing(label));
+// Dates are stored in UTC and shown in Paris time (R05).
+const when = (iso: string) => `${formatParis(iso)} (Paris)`;
+const date = (label: string, iso: string | null) => (iso ? given(label, when(iso)) : missing(label));
 const obligation = (a: Assessment, id: string) => a.obligations.find((o) => o.id === id);
 const recommendation = (o: Obligation | undefined) =>
   o ? `${o.status.replaceAll("_", " ")} (computed, ${o.legalRefs.join(", ")}): ${o.reasons.join(" ")}` : MISSING;
 const decisions = (events: EventRow[]) =>
   events.flatMap((e) => (e.event.type === "decision" ? [{ at: e.at, ...e.event }] : []));
 const describeDecision = (d: ReturnType<typeof decisions>[number]) =>
-  `${d.choice === "notify" ? "Notify" : "Do not notify"}. Reasons: ${d.reasons} Decided by ${d.by.name} (${d.by.role}) on ${d.at}, facts version ${d.factsVersion}.`;
+  `${d.choice === "notify" ? "Notify" : "Do not notify"}. Reasons: ${d.reasons} Decided by ${d.by.name} (${d.by.role}) on ${when(d.at)}, facts version ${d.factsVersion}.`;
 
 const H72 = { policy: "duration", startEvent: "awareness", hours: 72 } as const;
 
@@ -72,7 +74,7 @@ export function cnilNotification(
         fact(snapshot, "subjects_count", "Approximate number of data subjects", (v) => `approximately ${v}`),
         missing("Approximate number of personal data records"),
         fact(snapshot, "malicious", "Deliberate attack"),
-        given("First signal", snapshot.firstSignalAt),
+        given("First signal", when(snapshot.firstSignalAt)),
         date("Awareness of the breach", snapshot.awarenessAt),
       ],
       ...(narrative.nature ? { narrative: narrative.nature } : {}),
@@ -99,7 +101,7 @@ export function cnilNotification(
   if ("overdue" in clock && clock.overdue)
     sections.push({
       heading: "Reasons for the delay (Art. 33(1))",
-      fields: [given("72-hour deadline", clock.dueAt), missing("Reasons for notifying after 72 hours")],
+      fields: [given("72-hour deadline", when(clock.dueAt)), missing("Reasons for notifying after 72 hours")],
     });
   return { title: "Personal data breach notification to the CNIL (Art. 33 GDPR) — DRAFT", sections };
 }
@@ -107,11 +109,11 @@ export function cnilNotification(
 export function breachRegister(snapshot: IncidentSnapshot, assessment: Assessment, events: EventRow[]): GdprDocument {
   const all = decisions(events);
   const notifyDecision = all.findLast((d) => d.obligationId === "gdpr.notify_authority");
-  const timeline: Field[] = [given("First signal", snapshot.firstSignalAt)];
+  const timeline: Field[] = [given("First signal", when(snapshot.firstSignalAt))];
   for (const { at, event: e } of events) {
-    if (e.type === "awareness") timeline.push(given(`${at} · Awareness set`, `${e.at} by ${e.by.name} (${e.by.role})`));
-    if (e.type === "decision") timeline.push(given(`${at} · Decision on ${e.obligationId}`, `${e.choice} by ${e.by.name} (${e.by.role})`));
-    if (e.type === "draft") timeline.push(given(`${at} · Draft ${e.document}`, e.status));
+    if (e.type === "awareness") timeline.push(given(`${when(at)} · Awareness set`, `${when(e.at)} by ${e.by.name} (${e.by.role})`));
+    if (e.type === "decision") timeline.push(given(`${when(at)} · Decision on ${e.obligationId}`, `${e.choice} by ${e.by.name} (${e.by.role})`));
+    if (e.type === "draft") timeline.push(given(`${when(at)} · Draft ${e.document}`, e.status));
   }
   if (!events.some((e) => e.event.type === "awareness")) timeline.push(date("Awareness", snapshot.awarenessAt));
 

@@ -12,6 +12,7 @@ export function db() {
 }
 
 export class VersionConflict extends Error {}
+export class IncidentNotFound extends Error {}
 
 // Severity is a fact like the others (proposed by the AI, confirmed by a human); it lives in facts.severity.
 type Facts = IncidentSnapshot["facts"] & { severity?: IncidentSnapshot["severity"] };
@@ -44,6 +45,7 @@ export async function loadSnapshot(incidentId: string): Promise<IncidentSnapshot
     db().from("incidents").select("id, version, first_signal_at, awareness_at, facts").eq("id", incidentId).single(),
     db().from("signals").select("id").eq("incident_id", incidentId),
   ]);
+  if (inc.error?.code === "PGRST116") throw new IncidentNotFound(incidentId); // .single() found no row
   if (inc.error) throw new Error(inc.error.message);
   if (sig.error) throw new Error(sig.error.message);
   const row = inc.data as { id: string; version: number; first_signal_at: string; awareness_at: string | null; facts: Facts };
