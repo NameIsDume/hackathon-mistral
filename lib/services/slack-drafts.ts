@@ -2,14 +2,36 @@
 // "Approve section" (lawyer): modal pre-filled with the AI first pass, the lawyer edits and approves -> section_approved.
 // "Mark as sent" (DPO): modal for the sending time and the CNIL reference -> sent. Roles are checked on submit via `people`.
 import { z } from "zod";
-import { DraftSection, type Role } from "@/lib/domain";
-import { db, listEvents, VersionConflict } from "@/lib/adapters/supabase";
-import { button, openView, plain, postDm, section, type Block } from "@/lib/adapters/slack";
+import { DraftSection, type IncidentSnapshot, type Role } from "@/lib/domain";
+import { db, listEvents, loadSnapshot, VersionConflict } from "@/lib/adapters/supabase";
+import { button, context, header, markdownBlocks, openView, plain, postDm, section, type Block } from "@/lib/adapters/slack";
 import { approveSection, DraftRefused, markSent, type DraftDocument } from "@/lib/services/drafts";
-import { draftState } from "@/lib/regulations/gdpr/templates";
+import { evaluate } from "@/lib/regulations/gdpr";
+import { breachRegister, cnilNotification, draftState, subjectsNotice, toMarkdown, type EventRow, type GdprDocument } from "@/lib/regulations/gdpr/templates";
+import { deadline } from "@/lib/clocks";
 import type { Outcome } from "@/lib/services/slack-actions";
 
 const SECTION_TITLE: Record<DraftSection, string> = { consequences: "Likely consequences", measures: "Measures" };
+
+// A posted draft (#57): header, status line, short excerpt with "View full draft", then the draft buttons.
+// The CNIL description of the breach (AI, not stored) rides in the button value so the full view shows the same text.
+export function draftMessage(incidentId: string, document: DraftDocument, doc: GdprDocument, snapshot: IncidentSnapshot, events: EventRow[], now = new Date()): Block[] {
+  const state = draftState(events);
+  const nature = doc.sections.find((s) => s.narrative)?.narrative;
+  const excerpt = nature ?? doc.sections[0]?.fields.slice(0, 3).map((f) => `*${f.label}:* ${f.value}`).join("\n") ?? "";
+  const cnil = document === "cnil_notification";
+  const status = cnil && state.sent ? "sent" : cnil && state.readyToSend ? "ready to send" : "draft";
+  const authority = evaluate(snapshot).obligations.find((o) => o.id === "gdpr.notify_authority")?.deadline;
+  const clock = cnil && !state.sent && authority && deadline(authority, snapshot, now);
+  const value = JSON.stringify({ incidentId, document, ...(cnil && nature && { nature: nature.slice(0, 1400) }) });
+  return [
+    header(doc.title),
+    context(`Status: *${status}*`, clock && clock.dueAt && clock.overdue && "*72 h deadline passed*", "To review before any use"),
+    { ...section(excerpt.length > 300 ? `${excerpt.slice(0, 299)}…` : excerpt || "_No excerpt._"), accessory: button("View full draft", "draft_view", value) },
+    ...draftActionBlocks(incidentId, document),
+  ];
+}
+const ViewRef = z.object({ incidentId: z.uuid(), document: z.enum(["cnil_notification", "breach_register", "subjects_notice"]), nature: z.string().optional() });
 
 // Buttons under the CNIL draft in the DM where drafts are posted.
 export function draftActionBlocks(incidentId: string, document: DraftDocument): Block[] {
@@ -29,6 +51,7 @@ export function draftActionBlocks(incidentId: string, document: DraftDocument): 
 
 const Action = z.object({
   type: z.literal("block_actions"),
+  user: z.object({ id: z.string() }),
   trigger_id: z.string(),
   actions: z.array(z.object({ action_id: z.string(), value: z.string() })).min(1),
   container: z.object({ channel_id: z.string() }),
@@ -68,6 +91,32 @@ export async function handleDraftInteraction(payload: unknown): Promise<Outcome>
 async function onAction(p: z.infer<typeof Action>): Promise<Outcome> {
   const a = p.actions[0];
   const channel = p.container.channel_id;
+  // Read-only: the draft as it stands now (approved sections included), for the DPO and the lawyer it was posted to.
+  if (a.action_id === "draft_view") {
+    const ref = ViewRef.parse(JSON.parse(a.value));
+    const [people, snapshot, events] = await Promise.all([
+      db().from("people").select("role").eq("slack_user_id", p.user.id).in("role", ["dpo", "lawyer"]),
+      loadSnapshot(ref.incidentId),
+      listEvents(ref.incidentId),
+    ]);
+    if (people.error) throw new Error(people.error.message);
+    const allowed = !!(people.data as unknown[]).length;
+    const assessment = evaluate(snapshot);
+    const doc = !allowed
+      ? null
+      : ref.document === "cnil_notification"
+        ? cnilNotification(snapshot, assessment, events, { nature: ref.nature })
+        : ref.document === "breach_register"
+          ? breachRegister(snapshot, assessment, events)
+          : subjectsNotice(snapshot, events);
+    await openView(p.trigger_id, {
+      type: "modal",
+      title: plain("Draft", 24),
+      close: plain("Close", 24),
+      blocks: doc ? markdownBlocks(toMarkdown(doc), 100) : [section(allowed ? "_No draft yet._" : "_This draft is addressed to the DPO and the lawyer._")],
+    });
+    return {};
+  }
   if (a.action_id.startsWith("draft_approve_section:")) {
     const ref = SectionRef.parse({ ...JSON.parse(a.value), channel });
     const state = draftState(await listEvents(ref.incidentId));

@@ -118,13 +118,19 @@ const notifyDecision: EventRow = {
 describe("CNIL notification draft", () => {
   it("official Art. 33(3) labels, in order", () => {
     expect(cnil(snap(NUVOLA)).sections.map((s) => s.heading)).toEqual([
-      "Document status",
       "(a) Nature of the breach, and categories and approximate number of data subjects and of personal data records concerned",
       "(b) Name and contact details of the DPO or other contact point",
       "(c) Likely consequences of the breach",
       "(d) Measures taken or proposed, including mitigation",
       "Reasons for notifying more than 72 hours after becoming aware",
     ]);
+  });
+
+  it("internal review wording stays out of the notification body (Martyna)", () => {
+    const doc = cnil(snap(NUVOLA));
+    const body = JSON.stringify(doc.sections);
+    expect(body).not.toMatch(/computed|facts to confirm|Recommendation/);
+    expect(toMarkdown(doc).split("\n---\n")[1]).toContain("Internal review (not part of the notification)");
   });
 
   it("Nuvola: DPO unknown, proposed facts flagged", () => {
@@ -189,7 +195,7 @@ describe("CNIL notification draft", () => {
 });
 
 describe("lawyer sign-off (Cécile)", () => {
-  const status = (events: EventRow[]) => field(cnil(snap(NUVOLA), SOON, events), "Document status", "Status").value;
+  const status = (events: EventRow[]) => cnil(snap(NUVOLA), SOON, events).internal!.fields.find((f) => f.label === "Status")!.value;
 
   it("not ready to send before the lawyer approved both sections", () => {
     expect(status([aiDraft])).toBe("Draft, not ready to send: awaiting the lawyer's approval of likely consequences and measures taken or proposed");

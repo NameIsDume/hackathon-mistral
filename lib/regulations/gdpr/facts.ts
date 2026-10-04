@@ -82,7 +82,7 @@ export const GDPR_FACTS = {
   cross_border: {
     value: z.boolean(),
     role: "business_owner",
-    question: "Do we have offices in other EU countries, or does this substantially affect people living in other EU countries?",
+    question: "Do we have offices in other EEA countries (EU, Iceland, Liechtenstein, Norway), or does this substantially affect people living in them?",
     decisiveFor: [],
   },
   // --- Added from the lawyers' decisions of 2026-10-04 ---

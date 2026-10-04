@@ -23,8 +23,8 @@ export const STATUS_LABEL: Record<ObligationStatus, string> = {
   required: "Requis",
   not_required: "Non requis",
   undetermined: "À déterminer",
-  controller_duty: "Obligation du responsable",
-  controller_decides: "Le responsable décide",
+  controller_duty: "Obligation du client",
+  controller_decides: "Le client décide",
 };
 
 export const STATUS_TONE: Record<ObligationStatus, string> = {
