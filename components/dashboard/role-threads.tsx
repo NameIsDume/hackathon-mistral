@@ -5,6 +5,7 @@ import {
   ANSWER_TONE,
   initials,
   NOTIFICATION_KIND_LABEL,
+  notificationDetail,
   ROLE_ACCENT,
   ROLE_LABEL,
   threadsByRole,
@@ -33,7 +34,7 @@ export function RoleThreads({ events }: { events: EventRow[] }) {
       <div className="flex items-center gap-2">
         <MessageSquare className="size-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold">Slack messages per role</h2>
-        <span className="text-xs text-muted-foreground">· targeted DMs and answers</span>
+        <span className="text-xs text-muted-foreground">· what each person was asked and answered</span>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -62,7 +63,7 @@ export function RoleThreads({ events }: { events: EventRow[] }) {
                     )}
                     <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{timeParis(n.at)}</span>
                   </div>
-                  <p className="text-sm leading-relaxed text-muted-foreground">{n.preview}</p>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{notificationDetail(n)}</p>
                   {n.error && <p className="text-xs text-destructive">{n.error}</p>}
                 </li>
               ))}

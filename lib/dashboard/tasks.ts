@@ -41,7 +41,7 @@ export const factLabel = (k: string) => {
 
 // "T+12h" / "without undue delay" / "ongoing".
 export const formatDue = (d: TaskDue) =>
-  typeof d === "number" ? `T+${d}h` : d === "ongoing" ? "ongoing" : "without undue delay";
+  typeof d === "number" ? `T+${d}h` : d === "ongoing" ? "ongoing" : "as soon as possible";
 
 // A task is late when its relative deadline has passed and it is not done.
 export const isOverdue = (t: Task, startMs: number, now: number) =>
@@ -128,7 +128,7 @@ export function deriveColumns(
       const rec = signed(id, "recommendation");
       const dec = signed(id, "decision");
       if (role === "dpo")
-        tasks.push({ id: `rec-${id}`, title: `Recommend on ${what}`, due: TASK_DUE_HOURS.recommendation, status: rec || dec ? "done" : "todo" });
+        tasks.push({ id: `rec-${id}`, title: `Advise on ${what}`, due: TASK_DUE_HOURS.recommendation, status: rec || dec ? "done" : "todo" });
       if (role === "lawyer")
         tasks.push({
           id: `dec-${id}`,

@@ -62,7 +62,7 @@ function ClockCard({ obligation, timeline, now }: { obligation: Obligation; time
           </p>
         </div>
       ) : d ? (
-        <p className="mt-2 text-sm text-muted-foreground">Without undue delay · no countdown</p>
+        <p className="mt-2 text-sm text-muted-foreground">As soon as possible · no fixed deadline</p>
       ) : (
         <p className="mt-2 text-sm text-muted-foreground">Ongoing for the whole incident</p>
       )}
@@ -115,8 +115,8 @@ export function ObligationClocks({ obligations, timeline, tracks, now }: Props) 
     <section className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <Clock className="size-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Obligations &amp; clocks</h2>
-        <span className="text-xs text-muted-foreground">· GDPR engine, confirmed facts</span>
+        <h2 className="text-sm font-semibold">What we must do</h2>
+        <span className="text-xs text-muted-foreground">· based on the facts confirmed so far</span>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -128,7 +128,7 @@ export function ObligationClocks({ obligations, timeline, tracks, now }: Props) 
       {tracks.length > 0 && (
         <div className="mt-1 flex flex-col gap-3">
           <p className="text-xs font-medium text-muted-foreground">
-            Other legal deadlines, outside the GDPR engine (insurer, police complaint, ransom)
+            Other deadlines (insurer, police complaint, ransom)
           </p>
           <div className="grid gap-3 sm:grid-cols-3">
             {tracks.map((t) => (
