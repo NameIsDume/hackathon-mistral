@@ -10,6 +10,10 @@ vi.mock("@/lib/adapters/supabase", async (orig) => ({ ...(await orig<object>()),
 import { ROLE_MATRIX, WAVES, buildDm, notifyWave, waveFor } from "@/lib/services/notify";
 
 const now = new Date("2026-10-04T10:00:00+02:00");
+type Dm = { blocks: Record<string, unknown>[] } | null;
+const allActionIds = (dm: Dm) =>
+  (dm?.blocks ?? []).flatMap((b) => [...((b.elements as { action_id: string }[]) ?? []), ...(b.accessory ? [b.accessory as { action_id: string }] : [])]).map((e) => e.action_id);
+const actionsOf = (dm: Dm, blockId: string) => allActionIds({ blocks: (dm?.blocks ?? []).filter((b) => b.block_id === blockId) });
 const dmFor = (role: Role, s = snap(NUVOLA)) => {
   const dm = buildDm(role, { snapshot: s, assessment: evaluate(s), brief: "Phishing on the CRM: 3 exports downloaded.", now });
   return dm && { ...dm, all: dm.text + JSON.stringify(dm.blocks) };
@@ -18,24 +22,63 @@ const dmFor = (role: Role, s = snap(NUVOLA)) => {
 describe("role scoping (Nuvola, severity average)", () => {
   it("IT gets its own questions with buttons and no legal reasoning", () => {
     const dm = dmFor("it")!;
-    expect(dm.questionIds.sort()).toEqual(["gdpr.encrypted", "gdpr.keys_safe", "gdpr.still_exposed"]);
+    expect(dm.questionIds.sort()).toEqual(["gdpr.breach_type", "gdpr.encrypted", "gdpr.keys_safe", "gdpr.personal_data", "gdpr.still_exposed"]);
     expect(dm.blocks.filter((b) => b.type === "actions").map((b) => b.block_id)).toEqual(expect.arrayContaining(["encrypted", "keys_safe"]));
     const a = evaluate(snap(NUVOLA));
     for (const o of a.obligations) for (const s of [...o.reasons, ...o.legalRefs, o.id]) expect(dm.all).not.toContain(s);
     expect(dm.all).not.toMatch(/GDPR|Art\.|required|CNIL|deadline/i);
   });
 
-  it("management is not in the average wave; communications never gets a DM", () => {
-    expect(waveFor("average")).not.toContain("management");
-    expect(dmFor("communications")).toBeNull();
+  it("AI-proposed facts get Confirm/Wrong with the value and excerpt; unknown booleans keep Yes/No/I don't know", () => {
+    const dm = dmFor("it")!;
+    expect(actionsOf(dm, "encrypted")).toEqual(["fact_confirm", "fact_wrong"]);
+    expect(actionsOf(dm, "breach_type")).toEqual(["fact_confirm", "fact_wrong"]);
+    expect(actionsOf(dm, "keys_safe")).toEqual(["answer_yes", "answer_no", "answer_unknown"]);
+    expect(dm.all).toContain("The AI suggests: *No*");
+    expect(dm.all).toContain("about encrypted");
   });
 
-  it("the DPO gets the assessment, the clock and its own question as text (non-boolean)", () => {
+  it("non-boolean unknown or disputed facts get an Answer button", () => {
+    expect(actionsOf(dmFor("business_owner")!, "subjects_categories")).toEqual(["fact_input"]); // unknown, blocking
+    const s = snap(NUVOLA);
+    s.facts.processing_role.state = "disputed";
+    const dm = dmFor("dpo", s)!;
+    expect(actionsOf(dm, "processing_role")).toEqual(["fact_input"]);
+    expect(dm.all).toContain("was marked wrong");
+  });
+
+  it("Confirm/Wrong and Answer buttons only ever target facts the role owns", () => {
+    for (const s of [snap(NUVOLA), snap({ personal_data: true }), snap({ ...NUVOLA, processing_role: "processor" })])
+      for (const role of Role.options) {
+        const dm = dmFor(role, s);
+        for (const b of dm?.blocks ?? [])
+          for (const e of (b.elements as { action_id: string; value?: string }[] | undefined) ?? [])
+            if (/^(fact_|answer_)/.test(e.action_id)) expect(GDPR_FACTS[JSON.parse(e.value!).factKey as keyof typeof GDPR_FACTS].role, `${role} ${e.value}`).toBe(role);
+      }
+  });
+
+  it("the DPO gets the assessment, the clock, its fact to confirm, the severity select, the datetimepicker and Sign buttons", () => {
     const dm = dmFor("dpo")!;
     expect(dm.questionIds).toEqual(["gdpr.processing_role"]);
     expect(dm.all).toContain("GDPR Art. 33(1)");
     expect(dm.all).toContain("72h authority deadline");
-    expect(dm.blocks.some((b) => b.type === "actions")).toBe(false);
+    expect(actionsOf(dm, "processing_role")).toEqual(["fact_confirm", "fact_wrong"]);
+    const ids = allActionIds(dm);
+    expect(ids).toEqual(expect.arrayContaining(["severity", "awareness", "sign_decision:gdpr.notify_authority", "sign_decision:gdpr.inform_subjects", "sign_decision:gdpr.notify_controller"]));
+    const sev = dm.blocks.find((b) => (b.accessory as { action_id?: string })?.action_id === "severity")!.accessory as { options: { value: string }[] };
+    expect(sev.options.map((o) => JSON.parse(o.value))).toContainEqual({ incidentId: INCIDENT_ID, severity: "major" });
+  });
+
+  it("no other role ever gets the severity, awareness or signature controls", () => {
+    for (const role of Role.options.filter((r) => r !== "dpo")) {
+      const ids = allActionIds(dmFor(role, snap(NUVOLA)));
+      expect(ids.filter((i) => i === "severity" || i === "awareness" || i.startsWith("sign_decision")), role).toEqual([]);
+    }
+  });
+
+  it("management is not in the average wave; communications never gets a DM", () => {
+    expect(waveFor("average")).not.toContain("management");
+    expect(dmFor("communications")).toBeNull();
   });
 
   it("the lawyer is asked to decide only while informing the people concerned is undetermined", () => {

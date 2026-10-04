@@ -1,10 +1,11 @@
 // Role-based Slack DMs (#25). Each role's DM is built strictly from what ROLE_MATRIX lets that role see.
 import { z } from "zod";
-import type { Assessment, IncidentEvent, IncidentSnapshot, Role, Severity } from "@/lib/domain";
+import { Severity, type Assessment, type IncidentEvent, type IncidentSnapshot, type Role } from "@/lib/domain";
 import { evaluate } from "@/lib/regulations/gdpr";
 import { GDPR_FACTS, GDPR_QUESTIONS, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
 import { db, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
-import { briefBlocks, openDm, postDm, questionBlocks, section, type Block } from "@/lib/adapters/slack";
+import { briefBlocks, button, openDm, option, plain, postDm, questionBlocks, section, type Block } from "@/lib/adapters/slack";
+import { DECIDABLE_OBLIGATIONS, type DecisionStatus } from "@/lib/services/decide";
 import { deadline, formatParis } from "@/lib/clocks";
 
 type Kind = Extract<IncidentEvent, { type: "notification" }>["kind"];
@@ -20,16 +21,17 @@ type RoleRule = {
   facts: boolean; // every fact with its sources
   assessment: "full" | "statuses" | false; // obligations with reasons and legal refs, or one-line statuses
   clock: boolean; // 72h authority clock
-  questions: boolean; // blocking facts whose owner (GDPR_FACTS[k].role) is this role
+  questions: boolean; // facts owned by this role (GDPR_FACTS[k].role): blocking or disputed ones to answer, AI-proposed ones to confirm
   decision: boolean; // asked to decide when informing the people concerned is undetermined
+  review: boolean; // severity, awareness time and decision signature controls (signer)
 };
-const NONE = { ack: false, brief: false, facts: false, assessment: false, clock: false, questions: false, decision: false } as const;
+const NONE = { ack: false, brief: false, facts: false, assessment: false, clock: false, questions: false, decision: false, review: false } as const;
 
 export const ROLE_MATRIX: Record<Role, RoleRule | null> = {
   reporter: { ...NONE, kind: "brief", ack: true },
   it: { ...NONE, kind: "questions", brief: true, questions: true },
   business_owner: { ...NONE, kind: "questions", brief: true, questions: true },
-  dpo: { ...NONE, kind: "assessment", brief: true, facts: true, assessment: "full", clock: true, questions: true },
+  dpo: { ...NONE, kind: "assessment", brief: true, facts: true, assessment: "full", clock: true, questions: true, review: true },
   lawyer: { ...NONE, kind: "assessment", brief: true, assessment: "full", clock: true, decision: true },
   management: { ...NONE, kind: "management_note", brief: true, assessment: "statuses", clock: true },
   communications: null, // nothing in the MVP
@@ -46,20 +48,28 @@ export const waveFor = (severity: Severity | null): Role[] => WAVES[severity ?? 
 
 // ===========================================================================
 
-const OBLIGATION_LABEL: Record<string, string> = {
+export const OBLIGATION_LABEL: Record<string, string> = {
   "gdpr.record_breach": "Record the breach in the internal register",
   "gdpr.notify_controller": "Inform the client (we act as processor)",
   "gdpr.notify_authority": "Notify the data protection authority (CNIL)",
   "gdpr.inform_subjects": "Inform the people concerned",
 };
+const SIGN_LABEL: Record<(typeof DECIDABLE_OBLIGATIONS)[number], string> = {
+  "gdpr.notify_authority": "Sign: notify the CNIL",
+  "gdpr.inform_subjects": "Sign: inform the people",
+  "gdpr.notify_controller": "Sign: inform the client",
+};
+
+export const showValue = (v: unknown) =>
+  v === null || v === undefined ? "unknown" : typeof v === "boolean" ? (v ? "Yes" : "No") : Array.isArray(v) ? v.join(", ") : String(v);
 
 export const isBooleanFact = (key: string) => key in GDPR_FACTS && GDPR_FACTS[key as GdprFactKey].value instanceof z.ZodBoolean;
 
 export type Dm = { kind: Kind; blocks: Block[]; text: string; questionIds: string[] };
-type Ctx = { snapshot: IncidentSnapshot; assessment: Assessment; brief: string | null; now: Date };
+type Ctx = { snapshot: IncidentSnapshot; assessment: Assessment; brief: string | null; now: Date; decisions?: DecisionStatus[] };
 
 // Pure: the DM a role receives, or null when the role receives nothing.
-export function buildDm(role: Role, { snapshot, assessment, brief, now }: Ctx): Dm | null {
+export function buildDm(role: Role, { snapshot, assessment, brief, now, decisions = [] }: Ctx): Dm | null {
   const rule = ROLE_MATRIX[role];
   if (!rule) return null;
   const blocks: Block[] = [];
@@ -96,20 +106,75 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now }: Ctx): 
       para(`*72h authority deadline:* ${formatParis(c.dueAt)}${c.provisional ? " (provisional: counted from the first signal until awareness is confirmed)" : ""}`);
   }
   if (rule.decision && assessment.obligations.find((o) => o.id === "gdpr.inform_subjects")?.status === "undetermined")
-    para("*Your decision is needed:* whether to inform the people concerned (GDPR Art. 34) is undetermined. Please decide in the dashboard.");
+    para("*Your decision is needed:* whether to inform the people concerned (GDPR Art. 34) is undetermined. Advise the DPO, who signs it in Slack.");
 
+  if (rule.review) {
+    const id = snapshot.id;
+    const s = snapshot.severity;
+    const sev = `*Severity:* ${s.value ?? "unknown"} (${s.state === "confirmed" ? `confirmed by ${s.confirmedBy ?? "a reviewer"}` : "proposed by the AI, to confirm"})`;
+    blocks.push({
+      ...section(sev),
+      accessory: {
+        type: "static_select",
+        action_id: "severity",
+        placeholder: plain("Confirm or correct"),
+        options: Severity.options.map((v) => option(JSON.stringify({ incidentId: id, severity: v }), v.replace("_", " "))),
+      },
+    });
+    lines.push(sev);
+    para(
+      `*Awareness time:* ${snapshot.awarenessAt ? formatParis(snapshot.awarenessAt) : "not set (the 72h clock is provisional, counted from the first signal)"}\nPick when we became aware (your Slack time zone):`,
+    );
+    blocks.push({
+      type: "actions",
+      block_id: `awareness:${id}`,
+      elements: [
+        {
+          type: "datetimepicker",
+          action_id: "awareness",
+          ...(snapshot.awarenessAt && { initial_date_time: Math.floor(Date.parse(snapshot.awarenessAt) / 1000) }),
+        },
+      ],
+    });
+    const signed = decisions.map(
+      (d) => `• ${OBLIGATION_LABEL[d.obligationId] ?? d.obligationId}: ${d.decision.choice.replaceAll("_", " ")}, signed by ${d.decision.by.name}${d.status === "to_re_evaluate" ? " (*to re-evaluate*: facts changed since)" : ""}`,
+    );
+    para(`*Decisions*\n${signed.join("\n") || "none signed yet"}`);
+    blocks.push({
+      type: "actions",
+      block_id: "sign",
+      elements: DECIDABLE_OBLIGATIONS.map((o) => button(SIGN_LABEL[o], `sign_decision:${o}`, JSON.stringify({ incidentId: id, obligationId: o }))),
+    });
+  }
+
+  // Facts this role holds: AI proposals to confirm, blocking or disputed facts to answer.
+  const blocking = new Set(assessment.obligations.flatMap((o) => o.blockingQuestions));
   const questions = rule.questions
-    ? [...new Set(assessment.obligations.flatMap((o) => o.blockingQuestions))]
-        .map((k) => GDPR_QUESTIONS.find((q) => q.factKey === k))
-        .filter((q) => q?.role === role)
-        .map((q) => q!)
+    ? GDPR_QUESTIONS.filter((q) => {
+        const f = snapshot.facts[q.factKey];
+        if (q.role !== role || (f?.state === "confirmed" && f.value !== null)) return false;
+        return blocking.has(q.factKey) || f?.state === "disputed" || (f?.state === "proposed" && f.value !== null);
+      })
     : [];
   if (questions.length) para(`*${questions.length === 1 ? "One question" : `${questions.length} questions`} for you*`);
   for (const q of questions) {
-    if (isBooleanFact(q.factKey)) {
-      blocks.push(...questionBlocks(snapshot.id, q.factKey, q.text));
-      lines.push(q.text);
-    } else para(`• ${q.text} _(${role === "dpo" ? "please record it in the dashboard" : "please reply to the DPO"})_`);
+    const f = snapshot.facts[q.factKey];
+    const value = (v: object) => JSON.stringify({ incidentId: snapshot.id, factKey: q.factKey, ...v });
+    lines.push(q.text);
+    if (f?.state === "proposed" && f.value !== null) {
+      const src = f.sources.map((s) => s.excerpt).filter(Boolean).join(" … ");
+      blocks.push(section(`*${q.text}*\nThe AI suggests: *${showValue(f.value)}*${src ? `\n> ${src.slice(0, 500)}` : ""}`), {
+        type: "actions",
+        block_id: q.factKey,
+        elements: [button("Confirm", "fact_confirm", value({}), "primary"), button("Wrong", "fact_wrong", value({}), "danger")],
+      });
+    } else if (isBooleanFact(q.factKey)) blocks.push(...questionBlocks(snapshot.id, q.factKey, q.text));
+    else
+      blocks.push(section(`*${q.text}*${f?.state === "disputed" ? `\n_The suggested value (${showValue(f.value)}) was marked wrong._` : ""}`), {
+        type: "actions",
+        block_id: q.factKey,
+        elements: [button("Answer", "fact_input", value({}))],
+      });
   }
 
   if (!lines.length) return null;
