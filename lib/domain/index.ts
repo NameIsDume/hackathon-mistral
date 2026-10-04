@@ -103,6 +103,9 @@ export type RegulationModule = {
 // Events stored in incident_events (type column = `type`, payload column = the rest).
 // Written by the core (intake, Slack routing, answers, decisions); read by the dashboard.
 const Person = z.object({ role: Role, name: z.string(), slackUserId: z.string().optional() });
+// Sections of the CNIL draft written by the AI and signed off by the lawyer (Cécile), shared with the register and the notice.
+export const DraftSection = z.enum(["consequences", "measures"]);
+export type DraftSection = z.infer<typeof DraftSection>;
 
 export const IncidentEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("signal"), signalId: z.uuid(), connectorId: z.string(), actor: z.string(), excerpt: z.string() }),
@@ -143,6 +146,20 @@ export const IncidentEvent = z.discriminatedUnion("type", [
     factsVersion: z.int().positive(),
     moduleVersion: z.string(),
   }),
-  z.object({ type: z.literal("draft"), document: z.enum(["cnil_notification", "breach_register", "subjects_notice"]), status: z.enum(["draft", "validated"]) }),
+  // draft: a document was generated (`ai` = AI first pass of the sections the lawyer must approve, CNIL draft only).
+  // section_approved: the lawyer's final text for one section (the AI version stays in the earlier `draft` event).
+  // sent: the DPO recorded the transmission (sentAt, CNIL reference when given). "Ready to send" is derived:
+  // both sections approved. A decision to notify is not a notification sent.
+  z.object({
+    type: z.literal("draft"),
+    document: z.enum(["cnil_notification", "breach_register", "subjects_notice"]),
+    status: z.enum(["draft", "section_approved", "sent"]),
+    ai: z.record(DraftSection, z.string().nullable()).optional(),
+    section: DraftSection.optional(),
+    text: z.string().min(1).optional(),
+    by: Person.optional(),
+    sentAt: z.iso.datetime({ offset: true }).optional(),
+    reference: z.string().min(1).optional(),
+  }),
 ]);
 export type IncidentEvent = z.infer<typeof IncidentEvent>;
