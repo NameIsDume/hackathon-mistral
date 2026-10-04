@@ -151,7 +151,7 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
     });
     lines.push(sev);
     para(
-      `*Awareness time:* ${snapshot.awarenessAt ? formatParis(snapshot.awarenessAt) : "not set (the 72h clock is provisional, counted from the first signal)"}\nPick when we became aware (your Slack time zone):`,
+      `*Awareness time:* ${snapshot.awarenessAt ? `${formatParis(snapshot.awarenessAt)} (set from the report; correct it if we only became aware later)` : "not set (the 72h clock is provisional, counted from the first signal)"}`,
     );
     blocks.push({
       type: "actions",
