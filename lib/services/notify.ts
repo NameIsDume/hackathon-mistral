@@ -152,7 +152,8 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
   const questions = rule.questions
     ? GDPR_QUESTIONS.filter((q) => {
         const f = snapshot.facts[q.factKey];
-        if (q.role !== role || (f?.state === "confirmed" && f.value !== null)) return false;
+        // Confirmed by a human is never asked again, including "I don't know" (confirmed, value null: still unknown for the rules).
+        if (q.role !== role || f?.state === "confirmed") return false;
         return blocking.has(q.factKey) || f?.state === "disputed" || (f?.state === "proposed" && f.value !== null);
       })
     : [];

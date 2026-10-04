@@ -38,6 +38,14 @@ describe("role scoping (Nuvola, severity average)", () => {
     expect(dm.all).toContain("about encrypted");
   });
 
+  it("a fact answered \"I don't know\" by a human is not asked again", () => {
+    const s = snap(NUVOLA);
+    s.facts.keys_safe = { value: null, state: "confirmed", method: "human", sources: [], confirmedBy: "Hugo", confirmedAt: "2026-10-04T10:00:00Z" };
+    const dm = dmFor("it", s)!;
+    expect(dm.questionIds).not.toContain("gdpr.keys_safe");
+    expect(actionsOf(dm, "keys_safe")).toEqual([]);
+  });
+
   it("non-boolean unknown or disputed facts get an Answer button", () => {
     expect(actionsOf(dmFor("business_owner")!, "subjects_categories")).toEqual(["fact_input"]); // unknown, blocking
     const s = snap(NUVOLA);
