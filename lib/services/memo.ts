@@ -13,7 +13,7 @@ import { button, context, divider, header, openDm, postDm, section, updateMessag
 import { evaluate } from "@/lib/regulations/gdpr";
 import { GDPR_FACTS } from "@/lib/regulations/gdpr/facts";
 import { decisionStatus, type DecisionStatus } from "@/lib/services/decide";
-import { factLabel, OBLIGATION_LABEL, PLAIN, plainReason, recordWithRetry } from "@/lib/services/notify";
+import { CHIP, factLabel, OBLIGATION_LABEL, PLAIN, plainReason, recordWithRetry } from "@/lib/services/notify";
 import type { Outcome } from "@/lib/services/slack-actions";
 
 export const MEMO_TITLE = "Reasoning memo (AI, for review)";
@@ -167,13 +167,6 @@ export async function buildMemo(
 // ---------------------------------------------------------------------------
 
 // Phone first (the demo is shown on a phone): one short card per decision, plain words, no legal references.
-const CHIP: Record<string, string> = {
-  required: "🟠 Needed",
-  undetermined: "🟡 Your call",
-  not_required: "🟢 Not needed",
-  controller_duty: "⚪ The client's job",
-  controller_decides: "⚪ The client decides",
-};
 const QUESTION: Record<string, string> = { ...Object.fromEntries(Object.entries(PLAIN).map(([k, v]) => [k, v.question])), "gdpr.record_breach": "Should we log it in our breach register?" };
 const short = (t: string, n = 160) => {
   const p = plainReason(t);
