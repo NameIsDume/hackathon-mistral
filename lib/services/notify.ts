@@ -64,6 +64,25 @@ const SHORT_LABEL: Record<(typeof DECIDABLE_OBLIGATIONS)[number], string> = {
 const SITE = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "hackathon-mistral.vercel.app"}`;
 export const reportUrl = (incidentId: string) => `${SITE}/incidents/${incidentId}`;
 
+// Plain words for what the lawyer and the DPO read (Martyna: no technical terms for the person who signs).
+export const PLAIN: Record<(typeof DECIDABLE_OBLIGATIONS)[number], { question: string; yes: string; no: string }> = {
+  "gdpr.notify_authority": { question: "Should we report this to the CNIL?", yes: "Yes, report it", no: "No, don't report it" },
+  "gdpr.inform_subjects": { question: "Should we tell the people affected?", yes: "Yes, tell them", no: "No, don't tell them" },
+  "gdpr.notify_controller": { question: "Should we tell our client?", yes: "Yes, tell the client", no: "No, don't tell the client" },
+};
+export const PLAIN_STATUS: Record<string, string> = {
+  required: "yes, this needs to be done",
+  not_required: "not needed, based on confirmed facts",
+  undetermined: "your call: the facts don't settle it",
+  controller_duty: "this is the client's job",
+  controller_decides: "the client decides",
+};
+export const PLAIN_CHOICE: Record<string, string> = { notify: "go ahead", do_not_notify: "don't go ahead", defer: "wait for more facts" };
+// The rules cite their sources ("Q5:", "(para 119)"); the person signing does not need them.
+export const plainReason = (r: string) => {
+  const t = r.replace(/^Q\d+:\s*/, "").replace(/\s*\((?:para|paras|Art\.)[^)]*\)/g, "");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
 // Obligations someone here signs. As processor (#47) the CNIL and the people concerned are the client's call, and as
 // controller there is no client to inform: no button, no "decision needed" for those.
 const ours = (assessment: Assessment) =>

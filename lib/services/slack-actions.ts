@@ -7,7 +7,7 @@ import { GDPR_FACTS, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
 import { evaluate } from "@/lib/regulations/gdpr";
 import { db, listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
 import { ANSWER_LABEL, context, openDm, openView, option, plain, postDm, section, sections, updateMessage, type Block } from "@/lib/adapters/slack";
-import { buildDm, type DmContext, factLabel, formatLeft, isBooleanFact, notifyWave, OBLIGATION_LABEL, recordWithRetry, showValue } from "@/lib/services/notify";
+import { buildDm, type DmContext, factLabel, formatLeft, PLAIN, PLAIN_CHOICE, PLAIN_STATUS, plainReason, isBooleanFact, notifyWave, OBLIGATION_LABEL, recordWithRetry, showValue } from "@/lib/services/notify";
 import { confirmSeverity, InvalidAwareness, setAwareness } from "@/lib/services/review";
 import { decide, DECIDABLE_OBLIGATIONS, decisionStatus, DecisionRefused, flagFor, needsOverride, SIGNERS, type Stage } from "@/lib/services/decide";
 import { deadline, formatParis } from "@/lib/clocks";
@@ -205,22 +205,6 @@ function factModal(meta: z.infer<typeof FactMeta>): Block {
   };
 }
 
-// Plain words for the decision modal (Martyna: no technical terms for the person who signs).
-const PLAIN: Record<(typeof DECIDABLE_OBLIGATIONS)[number], { question: string; yes: string; no: string }> = {
-  "gdpr.notify_authority": { question: "Should we report this to the CNIL?", yes: "Yes, report it", no: "No, don't report it" },
-  "gdpr.inform_subjects": { question: "Should we tell the people affected?", yes: "Yes, tell them", no: "No, don't tell them" },
-  "gdpr.notify_controller": { question: "Should we tell our client?", yes: "Yes, tell the client", no: "No, don't tell the client" },
-};
-const PLAIN_STATUS: Record<string, string> = {
-  required: "yes, this needs to be done",
-  not_required: "not needed, based on confirmed facts",
-  undetermined: "your call: the facts don't settle it",
-  controller_duty: "this is the client's job",
-  controller_decides: "the client decides",
-};
-const PLAIN_CHOICE: Record<string, string> = { notify: "go ahead", do_not_notify: "don't go ahead", defer: "wait for more facts" };
-// The rules cite their sources ("Q5:", "(para 119)"); the person signing does not need them.
-const plainReason = (r: string) => r.replace(/^Q\d+:\s*/, "").replace(/\s*\((?:para|paras|Art\.)[^)]*\)/g, "");
 const shortFactState = (f: Fact<unknown> | undefined) =>
   !f || f.value === null || f.state === "disputed" ? "unknown" : f.state === "confirmed" ? "confirmed" : "suggested by the AI";
 
