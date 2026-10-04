@@ -42,7 +42,7 @@ export function EventTimeline({ events }: { events: EventRow[] }) {
     <section className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <BookText className="size-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Journal de l'incident</h2>
+        <h2 className="text-sm font-semibold">Journal de l&apos;incident</h2>
         <span className="text-xs text-muted-foreground">· registre Art. 33(5)</span>
       </div>
 

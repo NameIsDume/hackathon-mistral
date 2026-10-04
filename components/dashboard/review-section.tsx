@@ -41,7 +41,7 @@ export function ReviewSection({ incidentId, severity, firstSignalAt, awarenessAt
         <AssessmentPanel incidentId={incidentId} />
       ) : (
         <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
-          Le panneau d'évaluation en direct s'affiche une fois connecté au backend (Supabase + incident réel). En mode
+          Le panneau d&apos;évaluation en direct s&apos;affiche une fois connecté au backend (Supabase + incident réel). En mode
           démo, les horloges ci-dessus proviennent des données fictives.
         </p>
       )}

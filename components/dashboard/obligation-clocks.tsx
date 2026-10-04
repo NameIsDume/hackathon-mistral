@@ -62,7 +62,7 @@ function ClockCard({ obligation, timeline, now }: { obligation: Obligation; time
       ) : d ? (
         <p className="mt-2 text-sm text-muted-foreground">Sans délai indu · pas de compte à rebours</p>
       ) : (
-        <p className="mt-2 text-sm text-muted-foreground">En continu tout au long de l'incident</p>
+        <p className="mt-2 text-sm text-muted-foreground">En continu tout au long de l&apos;incident</p>
       )}
 
       {obligation.factsToConfirm.length > 0 && (

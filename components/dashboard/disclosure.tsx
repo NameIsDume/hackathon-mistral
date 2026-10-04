@@ -8,18 +8,26 @@ type Props = {
   label: string;
   count?: number;
   defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  id?: string;
   children: React.ReactNode;
 };
 
 // Minimal show/hide for secondary content: keeps the default view calm while the
-// full journal / advanced detail stay one click away.
-export function Disclosure({ label, count, defaultOpen = false, children }: Props) {
-  const [open, setOpen] = useState(defaultOpen);
+// full journal / advanced detail stay one click away. Controllable via `open`.
+export function Disclosure({ label, count, defaultOpen = false, open: controlled, onOpenChange, id, children }: Props) {
+  const [internal, setInternal] = useState(defaultOpen);
+  const open = controlled ?? internal;
+  const toggle = () => {
+    onOpenChange?.(!open);
+    if (controlled === undefined) setInternal((v) => !v);
+  };
   return (
-    <section className="rounded-xl border border-border bg-card ring-1 ring-foreground/5">
+    <section id={id} className="scroll-mt-4 rounded-xl border border-border bg-card ring-1 ring-foreground/5">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-expanded={open}
         className="flex w-full items-center gap-2 px-5 py-4 text-left text-sm font-semibold"
       >

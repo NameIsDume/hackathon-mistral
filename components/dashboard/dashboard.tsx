@@ -5,16 +5,14 @@ import { getSupabaseBrowser } from "@/lib/supabase/client";
 import type { ScenarioTrack } from "@/lib/dashboard/mock";
 import type { EventRow } from "@/lib/dashboard/view";
 import type { Fact, Obligation, Severity } from "@/lib/domain";
-import { AppShell } from "./app-shell";
 import { BlockersBox } from "./blockers-box";
 import { Disclosure } from "./disclosure";
 import { Hero } from "./hero";
+import { Kanban } from "./kanban";
 import { ObligationClocks } from "./obligation-clocks";
-import { PeopleBox } from "./people-box";
 import { ReviewSection } from "./review-section";
 import { RoleThreads } from "./role-threads";
 import { EventTimeline } from "./event-timeline";
-import { blockers, peopleInvolved } from "@/lib/dashboard/insights";
 
 type Incident = {
   id: string;
@@ -32,6 +30,7 @@ type Props = {
   obligations: Obligation[];
   events: EventRow[];
   tracks: ScenarioTrack[];
+  nowSeed: number; // seeded by the server so SSR and first client render match (no hydration drift)
 };
 
 // Maps a raw incident_events row (payload column holds the union's non-audit fields).
@@ -40,10 +39,11 @@ function rowToEvent(row: Record<string, unknown>): EventRow {
   return { id: row.id as number, at: row.at as string, actor: row.actor as string, type: row.type, ...payload } as EventRow;
 }
 
-export function Dashboard({ incident, severity, obligations, events: initialEvents, tracks }: Props) {
-  const [now, setNow] = useState(() => Date.now());
+export function Dashboard({ incident, severity, obligations, events: initialEvents, tracks, nowSeed }: Props) {
+  const [now, setNow] = useState(nowSeed);
   const [events, setEvents] = useState(initialEvents);
-  const [live, setLive] = useState(false);
+  // Resolved once at mount; consistent between SSR and client (env is inlined), so no hydration flash.
+  const [live] = useState(() => getSupabaseBrowser() !== null);
 
   // Live countdown: a single second-resolution tick drives every clock.
   useEffect(() => {
@@ -55,7 +55,6 @@ export function Dashboard({ incident, severity, obligations, events: initialEven
   useEffect(() => {
     const supabase = getSupabaseBrowser();
     if (!supabase) return;
-    setLive(true);
     const channel = supabase
       .channel(`incident:${incident.id}`)
       .on(
@@ -70,27 +69,35 @@ export function Dashboard({ incident, severity, obligations, events: initialEven
   }, [incident.id]);
 
   const timeline = { firstSignalAt: incident.firstSignalAt, awarenessAt: incident.awarenessAt };
-  const blockerCount = blockers(events, obligations, incident.awarenessAt).length;
-  const peopleCount = peopleInvolved(events).length;
+  const [journalOpen, setJournalOpen] = useState(false);
+
+  const openJournal = () => {
+    setJournalOpen(true);
+    requestAnimationFrame(() => document.getElementById("journal")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
 
   return (
-    <AppShell title={incident.title} company={incident.company} severity={incident.severity} live={live}>
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-5 sm:p-7">
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-7 p-5 sm:p-7">
         <Hero
           title={incident.title}
           brief={incident.brief}
           severity={incident.severity}
+          live={live}
           obligations={obligations}
+          tracks={tracks}
           timeline={timeline}
           now={now}
+          onOpenJournal={openJournal}
         />
 
-        <div className="grid gap-5 md:grid-cols-2">
-          <PeopleBox events={events} />
-          <BlockersBox events={events} obligations={obligations} awarenessAt={incident.awarenessAt} />
-        </div>
+        <Kanban events={events} obligations={obligations} severity={severity} awarenessAt={incident.awarenessAt} />
 
-        <Disclosure label="Journal complet" count={events.length}>
+        <Disclosure label="Points de blocage">
+          <BlockersBox events={events} obligations={obligations} awarenessAt={incident.awarenessAt} />
+        </Disclosure>
+
+        <Disclosure id="journal" label="Journal de l'incident" count={events.length} open={journalOpen} onOpenChange={setJournalOpen}>
           <EventTimeline events={events} />
         </Disclosure>
 
@@ -108,6 +115,6 @@ export function Dashboard({ incident, severity, obligations, events: initialEven
           </div>
         </Disclosure>
       </div>
-    </AppShell>
+    </div>
   );
 }

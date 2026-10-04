@@ -33,7 +33,7 @@ export function BlockersBox({
       {items.length === 0 ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <CircleCheckBig className="size-4 text-emerald-500" />
-          Rien ne bloque pour l'instant.
+          Rien ne bloque pour l&apos;instant.
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
