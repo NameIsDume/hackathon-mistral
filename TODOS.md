@@ -54,6 +54,18 @@ Reportés lors de la revue du plan (`PLAN.md`, /plan-eng-review du 2026-10-04). 
 **Priority:** P1
 **Depends on:** None
 
+### Limitation de débit sur les routes d'écriture
+
+**What:** Limiter le débit de `/intake`, `/answer`, `/decide` et `/draft` (par IP ou par clé).
+
+**Why:** R04 : la clé `DEMO_KEY` suffit pour 12 h, pas pour une URL publique durable.
+
+**Context:** Décidé lors de l'arbitrage du 2026-10-04. Options : Vercel Firewall (règles de débit) ou Upstash Ratelimit.
+
+**Effort:** S
+**Priority:** P1
+**Depends on:** Authentification
+
 ### Couche juridiction (États membres)
 
 **What:** Un seul moteur, avec autorités, formulaires, langue et délais nationaux par pays (transposition de NIS2).
