@@ -262,6 +262,12 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
       })
     : [];
   if (questions.length) lines.push(`*${questions.length === 1 ? "One question" : `${questions.length} questions`} for you*`);
+  else if (rule.questions && role !== "dpo") {
+    // Nothing left to ask (answers given, "I don't know" is never re-asked): say so, and how to add or change something.
+    const done = "*Nothing more needed from you for now.* Learned something new or want to change an answer? Just reply here in your own words.";
+    lines.push(done);
+    controls.push(section(done));
+  }
   for (const q of questions) {
     const f = snapshot.facts[q.factKey];
     const value = (v: object) => JSON.stringify({ incidentId: id, factKey: q.factKey, ...v });

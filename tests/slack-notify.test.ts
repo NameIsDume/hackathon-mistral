@@ -91,6 +91,13 @@ describe("role scoping (Nuvola, severity average)", () => {
     expect(sev.options.map((o) => JSON.parse(o.value))).toContainEqual({ incidentId: INCIDENT_ID, severity: "major" });
   });
 
+  it("a role with nothing left to answer is told so, and how to add or change something", () => {
+    const s = snap({ ...NUVOLA, records_count: 2400, subjects_categories: ["customers"], people_affected: false, can_contact_individually: true, cross_border: false });
+    for (const k of Object.keys(s.facts)) s.facts[k] = { ...s.facts[k], state: "confirmed", method: "human" };
+    expect(dmFor("business_owner", s)?.questionIds).toEqual([]);
+    expect(dmFor("business_owner", s)?.all).toContain("Nothing more needed from you for now.");
+  });
+
   it("links the live report on the site, except for the reporter (Q12: no outcome)", () => {
     expect(dmFor("dpo")?.all).toContain(`https://hackathon-mistral.vercel.app/incidents/${INCIDENT_ID}|Live report`);
     expect(dmFor("reporter")?.all ?? "").not.toContain("/incidents/");
