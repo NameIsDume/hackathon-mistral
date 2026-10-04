@@ -10,6 +10,7 @@ type FactDef = {
   role: Role; // who holds the answer
   label: string; // a few plain words, for lists and pickers (never the key)
   question: string; // plain language, shown in the Slack DM
+  hint: string; // one plain line under the question (Request more facts modal), <= 70 chars, no technical terms
   decisiveFor: string[]; // obligation ids whose outcome can flip on this fact
 };
 
@@ -19,6 +20,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Personal data involved",
     question: "Did the files or systems affected contain information about real people?",
+    hint: "Names, emails, customer or staff records all count.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects", "gdpr.record_breach"],
   },
   breach_type: {
@@ -26,6 +28,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "What happened to the data",
     question: "Was data seen or taken, changed, or just made unavailable?",
+    hint: "Seen or copied, changed, or just lost or locked.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"],
   },
   data_categories: {
@@ -33,6 +36,7 @@ export const GDPR_FACTS = {
     role: "business_owner",
     label: "Kind of information",
     question: "What kind of information was in it (contact details, bank data, health, ID)?",
+    hint: "For example contact details, bank data, health or ID.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"],
   },
   subjects_count: {
@@ -40,6 +44,7 @@ export const GDPR_FACTS = {
     role: "business_owner",
     label: "Number of people",
     question: "Roughly how many people are concerned?",
+    hint: "An estimate is fine for now.",
     decisiveFor: [],
   },
   subjects_categories: {
@@ -47,6 +52,7 @@ export const GDPR_FACTS = {
     role: "business_owner",
     label: "Who the people are",
     question: "Who are these people (customers, staff, children)?",
+    hint: "Customers, staff, children, or others.",
     decisiveFor: ["gdpr.inform_subjects"],
   },
   encrypted: {
@@ -54,6 +60,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Files were encrypted",
     question: "Were the files encrypted?",
+    hint: "Even if only some of the files were.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"],
   },
   keys_safe: {
@@ -61,6 +68,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Password or key still safe",
     question: "Is the encryption key or password still safe (not compromised and not obtainable by the attacker)?",
+    hint: "The attacker must not have it or be able to get it.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"],
   },
   still_exposed: {
@@ -68,6 +76,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Attacker can still get in",
     question: "Is the data still accessible to the attacker?",
+    hint: "Can they still read or copy it right now?",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"],
   },
   malicious: {
@@ -75,6 +84,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Deliberate attack",
     question: "Was this a deliberate attack (not a mistake)?",
+    hint: "Done on purpose, not a human mistake.",
     decisiveFor: [], // aggravating factor shown to the lawyer (Q5), never flips an outcome alone
   },
   measures_taken: {
@@ -82,6 +92,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "What we have done so far",
     question: "What has been done so far to stop it?",
+    hint: "For example passwords changed, access cut, systems isolated.",
     decisiveFor: [],
   },
   processing_role: {
@@ -89,6 +100,7 @@ export const GDPR_FACTS = {
     role: "dpo",
     label: "Our data or a client's",
     question: "Do we decide why and how this data is used, or do we only handle it on someone else's instructions (for a client)?",
+    hint: "Our own data, or data we only handle for a client?",
     decisiveFor: ["gdpr.notify_authority", "gdpr.notify_controller", "gdpr.inform_subjects"],
   },
   cross_border: {
@@ -96,6 +108,7 @@ export const GDPR_FACTS = {
     role: "business_owner",
     label: "People in other countries",
     question: "Do we have offices in other EEA countries (EU, Iceland, Liechtenstein, Norway), or does this substantially affect people living in them?",
+    hint: "Offices or affected people elsewhere in Europe.",
     decisiveFor: [],
   },
   // --- Added from the lawyers' decisions of 2026-10-04 ---
@@ -104,6 +117,7 @@ export const GDPR_FACTS = {
     role: "business_owner",
     label: "Number of records",
     question: "Roughly how many records (rows, files, entries) are concerned? An estimate is fine for now.",
+    hint: "Rows, files or entries. An estimate is fine.",
     decisiveFor: [], // content of the notification, Art. 33(3)(a); confirmed figure needed before the register entry is complete
   },
   encryption_state_of_art: {
@@ -111,6 +125,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Encryption was strong and switched on",
     question: "Did the encryption meet current standards, and was it switched on at the time of the incident?",
+    hint: "Strong, up to date, and switched on at the time.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"], // Q6 condition 1
   },
   encryption_covers_copies: {
@@ -118,6 +133,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Encryption covered the copies taken",
     question: "Did the encryption also cover the specific copies concerned (exports, backups)?",
+    hint: "And was it still encrypted when it left our systems?",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"], // Q6 condition 3
   },
   backup_exists: {
@@ -125,6 +141,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "We have a backup",
     question: "If data was lost or deleted, do we have a usable backup of it?",
+    hint: "A copy we can restore if data was lost or deleted.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"], // Q6 condition 4, Q2 permanent loss
   },
   data_left_control: {
@@ -132,6 +149,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Data left our hands",
     question: "Did any of the data leave our control (sent, downloaded or copied outside our systems)?",
+    hint: "Sent, downloaded or copied outside our systems.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"], // Q1
   },
   copies_recovered: {
@@ -139,6 +157,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "All copies recovered or deleted",
     question: "Has every copy that left our control been recovered or destroyed, and can we prove it?",
+    hint: "Every copy taken back or destroyed, and we can prove it.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"], // Q1
   },
   availability_restored: {
@@ -146,6 +165,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Data was restored quickly",
     question: "Was the data restored in good time, with no effect on the people concerned?",
+    hint: "Back quickly, with no effect on the people concerned.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"], // Q2
   },
   contract_mandate: {
@@ -153,6 +173,7 @@ export const GDPR_FACTS = {
     role: "dpo",
     label: "Contract lets us notify for the client",
     question: "Does the contract with the client authorise us to notify the authority on their behalf?",
+    hint: "Does the client contract let us tell the CNIL for them?",
     decisiveFor: [], // Q3: changes the processor's task, not the outcome
   },
   can_contact_individually: {
@@ -160,6 +181,7 @@ export const GDPR_FACTS = {
     role: "business_owner",
     label: "We can contact each person",
     question: "Can we contact each person concerned directly (we have their email or address) without disproportionate effort?",
+    hint: "We have an email or address for each person.",
     decisiveFor: [], // Art. 34(3)(c): direct messages or public announcement
   },
   people_affected: {
@@ -167,6 +189,7 @@ export const GDPR_FACTS = {
     role: "business_owner",
     label: "People already harmed",
     question: "Is harm already reaching people (fraud attempts, phishing emails, complaints)?",
+    hint: "For example fraud attempts, phishing emails, complaints.",
     decisiveFor: ["gdpr.notify_authority", "gdpr.inform_subjects"],
   },
   records_exists: {
@@ -174,6 +197,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "Logs of what was accessed",
     question: "Do we have logs showing what was accessed or taken?",
+    hint: "Logs that show what was opened or taken.",
     decisiveFor: [],
   },
   safe_channel: {
@@ -181,6 +205,7 @@ export const GDPR_FACTS = {
     role: "it",
     label: "A channel the attacker cannot see",
     question: "Do we have a communication channel the attacker cannot see?",
+    hint: "A way to talk that the attacker cannot read.",
     decisiveFor: [],
   },
 } satisfies Record<string, FactDef>;

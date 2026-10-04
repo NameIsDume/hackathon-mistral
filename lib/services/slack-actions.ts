@@ -275,28 +275,78 @@ async function decisionModal(meta: z.infer<typeof SignMeta>): Promise<Block> {
 }
 
 // Q14: the lawyer's follow-up question to the DPO, and the lawyer's request for more facts.
-const ROLE_WORD: Partial<Record<Role, string>> = { it: "IT", business_owner: "business owner", dpo: "DPO", lawyer: "lawyer" };
 
-function lawyerModal(callbackId: "lawyer_ask" | "lawyer_request_facts", meta: z.infer<typeof CaseMeta>): Block {
-  const element =
-    callbackId === "lawyer_ask"
-      ? { type: "plain_text_input", multiline: true, max_length: 3000 }
-      : { type: "multi_static_select", options: Object.entries(GDPR_FACTS).map(([k, d]) => option(k, `${factLabel(k)} (${ROLE_WORD[d.role] ?? d.role})`)) };
+function lawyerModal(meta: z.infer<typeof CaseMeta>): Block {
   return {
     type: "modal",
-    callback_id: callbackId,
+    callback_id: "lawyer_ask",
     private_metadata: JSON.stringify(meta),
-    title: plain(callbackId === "lawyer_ask" ? "Ask the DPO" : "Request more facts", 24),
-    submit: plain(callbackId === "lawyer_ask" ? "Send" : "Ask", 24),
+    title: plain("Ask the DPO", 24),
+    submit: plain("Send", 24),
     close: plain("Cancel", 24),
     blocks: [
       {
         type: "input",
         block_id: "value",
-        label: plain(callbackId === "lawyer_ask" ? "Your question to the DPO" : "Facts to ask again to the people who hold them", 2000),
-        element: { ...element, action_id: "value" },
+        label: plain("Your question to the DPO", 2000),
+        element: { type: "plain_text_input", multiline: true, max_length: 3000, action_id: "value" },
       },
     ],
+  };
+}
+
+// Q14 "Request more facts": facts grouped by who holds them (checkboxes, at most 10 per block), the blocking ones pre-ticked.
+const ASK_WHO: [Role, string][] = [
+  ["it", "💻 *Ask the IT team*"],
+  ["business_owner", "💼 *Ask the business owner*"],
+  ["dpo", "🛡️ *Ask the DPO*"],
+];
+async function requestFactsModal(meta: z.infer<typeof CaseMeta>): Promise<Block> {
+  const snapshot = await loadSnapshot(meta.incidentId);
+  const { obligations } = evaluate(snapshot);
+  const blocking = new Set(obligations.flatMap((o) => [...o.blockingQuestions, ...o.factsToConfirm]));
+  const blocks: Block[] = [context("Tick what you need. Each person only gets the questions meant for them.")];
+  for (const [role, header] of ASK_WHO) {
+    const opts = Object.entries(GDPR_FACTS)
+      .filter(([, d]) => d.role === role)
+      .map(([k, d]) => {
+        const f = snapshot.facts[k];
+        const missing = !f || f.value === null || f.state !== "confirmed";
+        const q = d.question.length <= (missing ? 65 : 75) ? d.question : `${d.label}?`;
+        return { key: k, opt: { ...option(k, missing ? `${q} · Missing` : q), description: plain(d.hint) } };
+      });
+    if (!opts.length) continue;
+    blocks.push(context(header));
+    for (let i = 0; i < opts.length; i += 10) {
+      const chunk = opts.slice(i, i + 10);
+      const initial = chunk.filter((o) => blocking.has(o.key)).map((o) => o.opt);
+      blocks.push({
+        type: "input",
+        block_id: `facts_${role}${i ? `_${i / 10 + 1}` : ""}`,
+        optional: true,
+        label: plain(i ? "More questions" : "Questions", 2000),
+        element: { type: "checkboxes", action_id: "value", options: chunk.map((o) => o.opt), ...(initial.length && { initial_options: initial }) },
+      });
+    }
+  }
+  blocks.push({
+    type: "input",
+    block_id: "note",
+    optional: true,
+    label: plain("Note to them (optional)", 2000),
+    element: { type: "plain_text_input", action_id: "value", multiline: true, max_length: 1000, placeholder: plain("We need this for the CNIL filing before Thursday", 150) },
+  });
+  const d = obligations.find((x) => x.id === "gdpr.notify_authority")?.deadline;
+  const due = d && deadline(d, snapshot, new Date()).dueAt;
+  if (due) blocks.push(context(`⏱ CNIL deadline: <!date^${Math.floor(Date.parse(due) / 1000)}^{date_short_pretty}, {time}|${formatParis(due)} Paris>`));
+  return {
+    type: "modal",
+    callback_id: "lawyer_request_facts",
+    private_metadata: JSON.stringify(meta),
+    title: plain("Request more facts", 24),
+    submit: plain("Send questions", 24),
+    close: plain("Cancel", 24),
+    blocks,
   };
 }
 
@@ -382,7 +432,7 @@ async function onAction(p: BlockActions): Promise<Outcome> {
         ? factModal({ ...InputValue.parse(json(a.value)), ...where })
         : a.action_id === "lawyer_ask" || a.action_id === "lawyer_request_facts"
           ? // From the memo: no case DM to refresh in place (refreshing it would overwrite the memo).
-            lawyerModal(a.action_id, { ...CaseValue.parse(json(a.value)), ...(json(a.value).fromMemo ? { channel: "", ts: "" } : where) })
+            await (a.action_id === "lawyer_ask" ? lawyerModal : requestFactsModal)({ ...CaseValue.parse(json(a.value)), ...(json(a.value).fromMemo ? { channel: "", ts: "" } : where) })
           : await decisionModal({ ...SignValue.parse(json(a.value)), ...where });
     await openView(z.string().parse(p.trigger_id), view);
     return {};
@@ -525,20 +575,25 @@ async function onDecisionSubmit(p: ViewSubmission): Promise<Outcome> {
 // "Request more facts" re-asks the chosen facts to the roles that hold them (notification events, actor = the lawyer).
 async function onLawyerSubmit(p: ViewSubmission): Promise<Outcome> {
   const meta = CaseMeta.parse(json(p.view.private_metadata));
-  const s = p.view.state.values.value?.value;
+  const values = p.view.state.values;
+  const s = values.value?.value;
+  // "facts_*" blocks (grouped checkboxes); "value" is the old single picker, still accepted.
+  const factBlocks = Object.keys(values).filter((b) => b.startsWith("facts_") || b === "value");
+  const first = factBlocks[0] ?? "value";
   const by = await personWithRole(p.user.id, SIGNERS.decision);
-  if (!by) return errors("value", "Only the lawyer can do this: nothing was recorded.");
+  if (!by) return errors(p.view.callback_id === "lawyer_request_facts" ? first : "value", "Only the lawyer can do this: nothing was recorded.");
   const actor = `slack:${p.user.id}`;
   const own = meta.ts ? { role: by.role, channel: meta.channel, ts: meta.ts } : undefined;
 
   if (p.view.callback_id === "lawyer_request_facts") {
-    const keys = (s?.selected_options ?? []).map((o) => o.value).filter((k) => k in GDPR_FACTS);
-    if (!keys.length) return errors("value", "Pick at least one fact.");
+    const keys = factBlocks.flatMap((b) => values[b].value?.selected_options ?? []).map((o) => o.value).filter((k) => k in GDPR_FACTS);
+    if (!keys.length) return errors(first, "Pick at least one fact.");
     const roles = [...new Set(keys.map((k) => GDPR_FACTS[k as GdprFactKey].role))];
+    const note = values.note?.value?.value?.trim() || undefined;
     return {
       later: async () => {
-        await notifyWave(meta.incidentId, new Date(), roles, { reask: keys, actor, key: `slack:${p.view.id}` });
-        await refreshDms(meta.incidentId, `Facts requested: ${keys.join(", ")}`, own);
+        await notifyWave(meta.incidentId, new Date(), roles, { reask: keys, actor, key: `slack:${p.view.id}`, note: note ? { from: by.name, text: note } : undefined });
+        await refreshDms(meta.incidentId, `Facts requested: ${keys.map(factLabel).join(", ")}`, own);
       },
     };
   }

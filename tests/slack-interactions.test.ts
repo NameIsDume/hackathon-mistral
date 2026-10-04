@@ -401,18 +401,35 @@ describe("POST /api/slack/interactions", () => {
 
   it("Q14: Request more facts re-asks the chosen facts to their holders only, traced to the lawyer", async () => {
     await post(caseButton("lawyer_request_facts"));
-    expect(bodies("views.open")[0].view.callback_id).toBe("lawyer_request_facts");
+    const view = bodies("views.open")[0].view;
+    expect(view.callback_id).toBe("lawyer_request_facts");
+    const checks = view.blocks.filter((b: { block_id?: string }) => b.block_id?.startsWith("facts_"));
+    expect(checks.map((b: { block_id: string }) => b.block_id)).toEqual(["facts_it", "facts_it_2", "facts_business_owner", "facts_dpo"]);
+    const texts = checks.flatMap((b: { element: { options: { text: { text: string } }[] } }) => b.element.options.map((o) => o.text.text));
+    expect(texts.length).toBe(24);
+    expect(texts.filter((t: string) => t.includes("_") || t.length > 75)).toEqual([]);
     const s = snap(NUVOLA);
     s.facts.encrypted = { ...s.facts.encrypted, state: "confirmed" }; // already answered: asked again anyway
     m.loadSnapshot.mockImplementation(async () => s);
     m.db.mockImplementation(fakeDb({ people: PEOPLE.map((p, i) => ({ id: `p${i}`, ...p })) }));
-    const values = { value: { value: { type: "multi_static_select", selected_options: [{ value: "encrypted" }] } } };
+    const values = {
+      facts_it: { value: { type: "checkboxes", selected_options: [{ value: "encrypted" }] } },
+      facts_business_owner: { value: { type: "checkboxes", selected_options: [] } },
+      note: { value: text("We need this for the CNIL filing before Thursday") },
+    };
     expect((await post(submit("U_LAW", "lawyer_request_facts", { incidentId: INCIDENT_ID }, values))).status).toBe(200);
     expect(bodies("conversations.open").map((b) => b.users)).toEqual(["U_IT"]);
     const arg = m.recordEvent.mock.calls[0][0];
     expect(arg.actor).toBe("slack:U_LAW");
     expect(arg.event).toMatchObject({ type: "notification", to: { role: "it" }, questionIds: expect.arrayContaining(["gdpr.encrypted"]) });
     expect(JSON.stringify(bodies("chat.postMessage")[0].blocks)).toContain("The lawyer asks you to check this again");
+    expect(JSON.stringify(bodies("chat.postMessage")[0].blocks)).toContain("We need this for the CNIL filing before Thursday");
+  });
+
+  it("Q14: Request more facts needs at least one fact (error on the first facts block)", async () => {
+    const values = { facts_it: { value: { type: "checkboxes", selected_options: [] } } };
+    const res = await (await post(submit("U_LAW", "lawyer_request_facts", { incidentId: INCIDENT_ID }, values))).json();
+    expect(res).toMatchObject({ response_action: "errors", errors: { facts_it: "Pick at least one fact." } });
   });
 
   it("Q14: the lawyer's actions are refused to anyone else", async () => {
