@@ -25,7 +25,8 @@ export const REGISTER_PARTS = ["Facts", "Effects", "Remedial action", "Decision 
 // proposed: the value rests on an unconfirmed fact (a register part is complete only without missing or proposed fields).
 export type Field = { label: string; value: string; missing: boolean; proposed?: boolean; sourceFact?: string };
 export type Section = { heading: string; fields: Field[]; narrative?: string };
-export type GdprDocument = { title: string; sections: Section[] };
+// `internal`: review status for our own people, never part of the document that is sent (Martyna's review).
+export type GdprDocument = { title: string; sections: Section[]; internal?: Section };
 // Same shape as listEvents() rows.
 export type EventRow = { at: string; actor: string; event: IncidentEvent };
 export type Narrative = { nature?: string | null; consequences?: string | null; measures?: string | null };
@@ -154,17 +155,17 @@ export function cnilNotification(
       ? "Ready to send: likely consequences and measures approved by the lawyer"
       : `Draft, not ready to send: awaiting the lawyer's approval of ${awaiting.join(" and ")}`;
 
+  const internal: Section = {
+    heading: "Internal review (not part of the notification)",
+    fields: [
+      given("Status", status),
+      given("Facts version", String(snapshot.version)),
+      given("Recommendation", recommendation(obligation(assessment, "gdpr.notify_authority"))),
+      ...(dpoRec ? [given("DPO recommendation", describeDecision(dpoRec))] : []),
+      decision ? given("Decision", describeDecision(decision)) : missing("Decision"),
+    ],
+  };
   const sections: Section[] = [
-    {
-      heading: "Document status",
-      fields: [
-        given("Status", status),
-        given("Facts version", String(snapshot.version)),
-        given("Recommendation", recommendation(obligation(assessment, "gdpr.notify_authority"))),
-        ...(dpoRec ? [given("DPO recommendation", describeDecision(dpoRec))] : []),
-        decision ? given("Decision", describeDecision(decision)) : missing("Decision"),
-      ],
-    },
     {
       heading: CNIL_LABELS.a,
       fields: [
@@ -204,7 +205,7 @@ export function cnilNotification(
       ],
     },
   ];
-  return { title: "Personal data breach notification to the CNIL (Art. 33 GDPR) — DRAFT", sections };
+  return { title: "Personal data breach notification to the CNIL (Art. 33 GDPR) — DRAFT", sections, internal };
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +322,8 @@ export function subjectsNotice(snapshot: IncidentSnapshot, events: EventRow[], d
 
 export function toMarkdown(doc: GdprDocument): string {
   const out = [`# ${doc.title}`];
-  for (const s of doc.sections) {
+  for (const s of doc.internal ? [...doc.sections, doc.internal] : doc.sections) {
+    if (s === doc.internal) out.push("", "---");
     out.push("", `## ${s.heading}`);
     if (s.narrative) out.push("", s.narrative);
     out.push("", ...s.fields.map((f) => `- **${f.label}**: ${f.missing ? `**${f.value}**` : f.value}`));
