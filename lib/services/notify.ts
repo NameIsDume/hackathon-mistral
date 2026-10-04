@@ -422,8 +422,8 @@ export async function recordWithRetry(incidentId: string, version: number, args:
 }
 
 // `roles` restricts the wave (#40: only the newly concerned roles after a severity change); default = the whole wave.
-// `reask` (Q14 "Request more facts"): facts asked again even if answered; `actor` and `key` trace who asked.
-export async function notifyWave(incidentId: string, now = new Date(), roles?: Role[], opts: { reask?: string[]; actor?: string; key?: string } = {}) {
+// `reask` (Q14 "Request more facts"): facts asked again even if answered; `actor` and `key` trace who asked; `note`: the lawyer's words, shown first.
+export async function notifyWave(incidentId: string, now = new Date(), roles?: Role[], opts: { reask?: string[]; actor?: string; key?: string; note?: { from: string; text: string } } = {}) {
   const snapshot = await loadSnapshot(incidentId);
   const assessment = evaluate(snapshot);
   roles ??= waveFor(snapshot.severity.value);
@@ -443,6 +443,12 @@ export async function notifyWave(incidentId: string, now = new Date(), roles?: R
   for (const p of people.data as PersonRow[]) {
     const dm = buildDm(p.role, { snapshot, assessment, brief, now, decisions, reask: opts.reask });
     if (!dm) continue;
+    if (opts.note) {
+      // The lawyer's note (Q14 "Request more facts"), only on this wave's DM.
+      const line = `*Note from ${opts.note.from}:* ${opts.note.text}`;
+      dm.blocks.unshift(section(line));
+      dm.text = `${line}\n\n${dm.text}`;
+    }
     const prefix = `notify:${incidentId}:${p.id}:${dm.kind}:`;
     // ponytail: content-based dedupe (same DM already delivered -> skip), since every event bumps the version.
     if (rows.some((r) => r.idempotency_key?.startsWith(prefix) && r.payload.delivered && r.payload.preview === dm.text)) {
