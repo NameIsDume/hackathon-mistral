@@ -1,11 +1,11 @@
 # Paste at https://api.slack.com/apps -> Create New App -> From a manifest.
 # Production URL below; for local dev, point it to a cloudflared tunnel temporarily.
 display_information:
-  name: Incichill
+  name: Sphynx
   description: Incident response copilot (GDPR) - demo, fictional data only
 features:
   bot_user:
-    display_name: Incichill
+    display_name: Sphynx
     always_online: true
   slash_commands:
     - command: /incident
