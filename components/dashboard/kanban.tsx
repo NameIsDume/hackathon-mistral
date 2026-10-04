@@ -6,9 +6,9 @@ import { ROLE_LABEL, type EventRow } from "@/lib/dashboard/view";
 import type { Fact, Obligation, Severity } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
-const FRESH_MS = 10_000; // a task that just turned Done stays in its column, green, this long, then goes to the backlog
+const FRESH_MS = 10_000; // a task that just turned Done stays in its column, green, this long, then hides (shown again with "Completed")
 
-// Read-only: one column per person, their open tasks stacked as cards, finished ones in a backlog. Everything is done from Slack.
+// Read-only: one column per person, their open tasks stacked as cards; finished ones hidden unless "Completed" is on. Everything is done from Slack.
 export function Kanban({
   events,
   obligations,
@@ -31,27 +31,40 @@ export function Kanban({
   const total = columns.reduce((n, c) => n + c.total, 0);
   const startMs = Date.parse(startAt);
 
-  // Done at page load -> straight to the backlog; done since (Realtime refresh) -> green for FRESH_MS first.
+  // Done at page load -> hidden at once; done since (Realtime refresh) -> green for FRESH_MS first.
   const doneIds = columns.flatMap((c) => c.tasks.filter((t) => t.status === "done").map((t) => t.id));
   const [seen, setSeen] = useState(() => ({ ids: new Set(doneIds), freshUntil: {} as Record<string, number> }));
   const newlyDone = doneIds.filter((id) => !seen.ids.has(id));
   if (newlyDone.length)
     setSeen({ ids: new Set(doneIds), freshUntil: { ...seen.freshUntil, ...Object.fromEntries(newlyDone.map((id) => [id, now + FRESH_MS])) } });
   const fresh = (id: string) => (seen.freshUntil[id] ?? 0) > now;
+  const [showCompleted, setShowCompleted] = useState(false);
 
   return (
     <section className="flex flex-col gap-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
         <h2 className="font-serif text-3xl font-semibold">Who does what</h2>
-        <span className="font-mono text-sm text-muted-foreground tabular-nums">
-          {done} of {total} actions done
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-sm text-muted-foreground tabular-nums">
+            {done} of {total} actions done
+          </span>
+          <button
+            type="button"
+            aria-pressed={showCompleted}
+            onClick={() => setShowCompleted((v) => !v)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              showCompleted ? "border-emerald-600/40 bg-emerald-500/15 text-emerald-700" : "border-border bg-card text-muted-foreground hover:bg-accent",
+            )}
+          >
+            Completed · {done}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(12rem,1fr))] gap-6">
         {columns.map((col) => {
-          const open = col.tasks.filter((t) => t.status !== "done" || fresh(t.id));
-          const backlog = col.tasks.filter((t) => t.status === "done" && !fresh(t.id));
+          const open = col.tasks.filter((t) => t.status !== "done" || fresh(t.id) || showCompleted);
           return (
             <div key={col.role} className="flex min-w-0 flex-col gap-3">
               <div className="flex flex-col gap-1 border-b border-border pb-3">
@@ -69,7 +82,11 @@ export function Kanban({
                     key={t.id}
                     className={cn(
                       "flex flex-col gap-2.5 rounded-lg border p-4 transition-colors duration-500",
-                      justDone ? "border-emerald-500/60 bg-emerald-500/10" : "border-border bg-card",
+                      justDone
+                        ? "border-emerald-500/60 bg-emerald-500/10"
+                        : t.status === "pending_validation"
+                          ? "border-amber-500/60 bg-amber-500/10"
+                          : "border-border bg-card",
                     )}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -92,21 +109,6 @@ export function Kanban({
               })}
               {!open.length && <p className="text-sm text-muted-foreground">Nothing left to do.</p>}
 
-              {backlog.length > 0 && (
-                <details className="group rounded-lg border border-border/60 px-4 py-3">
-                  <summary className="cursor-pointer list-none text-xs font-medium text-muted-foreground">
-                    Done · {backlog.length}
-                  </summary>
-                  <ul className="mt-3 flex flex-col gap-2">
-                    {backlog.map((t) => (
-                      <li key={t.id} className="flex gap-2 text-xs leading-snug text-muted-foreground">
-                        <span className="text-emerald-600">✓</span>
-                        <span>{t.title}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
             </div>
           );
         })}
