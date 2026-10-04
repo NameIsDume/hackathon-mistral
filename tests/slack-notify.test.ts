@@ -91,6 +91,11 @@ describe("role scoping (Nuvola, severity average)", () => {
     expect(sev.options.map((o) => JSON.parse(o.value))).toContainEqual({ incidentId: INCIDENT_ID, severity: "major" });
   });
 
+  it("links the live report on the site, except for the reporter (Q12: no outcome)", () => {
+    expect(dmFor("dpo")?.all).toContain(`https://hackathon-mistral.vercel.app/incidents/${INCIDENT_ID}|Live report`);
+    expect(dmFor("reporter")?.all ?? "").not.toContain("/incidents/");
+  });
+
   it("as processor, only the client notification is ours to sign: no CNIL / people buttons, nothing else 'needed'", () => {
     const s = snap({ ...NUVOLA, processing_role: "processor", contract_mandate: true });
     for (const k of Object.keys(s.facts)) s.facts[k] = { ...s.facts[k], state: "confirmed", method: "human", confirmedBy: "Cécile" };

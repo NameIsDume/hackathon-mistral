@@ -60,6 +60,10 @@ const SHORT_LABEL: Record<(typeof DECIDABLE_OBLIGATIONS)[number], string> = {
   "gdpr.notify_controller": "client",
 };
 
+// The live report on the read-only site (one per incident). Vercel exposes the production domain at runtime.
+const SITE = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "hackathon-mistral.vercel.app"}`;
+export const reportUrl = (incidentId: string) => `${SITE}/incidents/${incidentId}`;
+
 // Obligations someone here signs. As processor (#47) the CNIL and the people concerned are the client's call, and as
 // controller there is no client to inform: no button, no "decision needed" for those.
 const ours = (assessment: Assessment) =>
@@ -283,6 +287,7 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
             rule.assessment !== false && `Severity: *${sev.value?.replace("_", " ") ?? "unknown"}* (${sev.state === "confirmed" ? "confirmed" : "proposed"})`,
             rule.clock && clock?.dueAt && `CNIL deadline: *${formatParis(clock.dueAt)}* Paris${clock.overdue ? ", *overdue*" : ""}${clock.provisional ? " (provisional)" : ""}`,
             `Your role: ${ROLE_LABEL[role]}`,
+            `<${reportUrl(id)}|Live report>`,
           ),
         ];
   const blocks = [...top, ...info, ...(info.length && controls.length ? [divider] : []), ...controls];
