@@ -31,4 +31,5 @@ jobs:
       - run: pnpm dlx vercel@latest build --token=${{ secrets.VERCEL_TOKEN }}
       - id: deploy
         run: echo "url=$(pnpm dlx vercel@latest deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})" >> "$GITHUB_OUTPUT"
-      - run: echo "Preview ${{ github.ref_name }}: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+      - run: |
+          echo "Preview ${{ github.ref_name }}: ${{ steps.deploy.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
