@@ -141,6 +141,76 @@ Never guess numbers, encryption, or intent.`,
   }
 }
 
+// #55: pull several sourced facts out of one free-text reply, limited to the keys the person may answer.
+// Same grounding as extraction: a value is kept only if its excerpt is really quoted from the reply.
+export async function extractReplyFacts(
+  text: string,
+  keys: GdprFactKey[],
+  signal = AbortSignal.timeout(BUDGET_MS),
+): Promise<Record<string, { value: unknown; excerpt: string }>> {
+  if (keys.length === 0) return {};
+  const schema = z.object(
+    Object.fromEntries(keys.map((k) => [k, z.object({ value: GDPR_FACTS[k].value.nullable(), excerpt: z.string().nullable() })])),
+  );
+  const list = keys.map((k) => `- ${k}: ${GDPR_FACTS[k].question}`).join("\n");
+  try {
+    const { output } = await callMistral(
+      "extract",
+      schema,
+      `${GUARD}
+The message is a person's reply during a security incident. Extract ONLY the facts below that the reply clearly answers.
+For each fact: set value only if the reply states it or makes it obvious, and set excerpt to the exact words copied from
+the reply that support it. If the reply does not answer a fact, value and excerpt must both be null. Never guess.
+Facts:\n${list}`,
+      text,
+      signal,
+    );
+    const out: Record<string, { value: unknown; excerpt: string }> = {};
+    for (const [k, v] of Object.entries(output as Record<string, { value: unknown; excerpt: string | null }>))
+      if (v.value !== null && v.excerpt?.trim() && norm(text).includes(norm(v.excerpt))) out[k] = { value: v.value, excerpt: v.excerpt };
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+// #55: classify a DPO/lawyer DM as "why is this (not) required" or a "what if <fact> were <value>" hypothetical.
+// The model only maps language to structure; the real rules (evaluate) compute every result.
+export const OBLIGATION_IDS = ["gdpr.notify_authority", "gdpr.inform_subjects", "gdpr.record_breach", "gdpr.notify_controller"] as const;
+export type CaseQuestion =
+  | { kind: "why"; obligation: (typeof OBLIGATION_IDS)[number] | null }
+  | { kind: "what_if"; overrides: { factKey: GdprFactKey; value: string }[] }
+  | { kind: "other" };
+
+export async function interpretCaseQuestion(text: string, signal = AbortSignal.timeout(BUDGET_MS)): Promise<CaseQuestion> {
+  const keys = Object.keys(GDPR_FACTS) as GdprFactKey[];
+  const schema = z.object({
+    kind: z.enum(["why", "what_if", "other"]),
+    obligation: z.enum(OBLIGATION_IDS).nullable(),
+    overrides: z.array(z.object({ factKey: z.enum(keys as [string, ...string[]]), value: z.string() })),
+  });
+  try {
+    const { output } = await callMistral(
+      "classify",
+      schema,
+      `${GUARD}
+The message is a question from a DPO or lawyer about the incident analysis. Classify it:
+- "why": they ask why an obligation is or is not required. Set "obligation" to the one they mean, or null if general.
+- "what_if": a hypothetical ("and if <fact> were <value>"). List the fact changes as overrides {factKey, value}.
+  For yes/no facts use "yes" or "no"; for lists use comma-separated values; otherwise the plain value. Never invent facts.
+- "other": anything else.
+Set overrides to [] unless kind is "what_if". Fact keys:\n${keys.map((k) => `- ${k}: ${GDPR_FACTS[k].question}`).join("\n")}`,
+      text,
+      signal,
+    );
+    if (output.kind === "what_if") return { kind: "what_if", overrides: output.overrides as { factKey: GdprFactKey; value: string }[] };
+    if (output.kind === "why") return { kind: "why", obligation: output.obligation };
+    return { kind: "other" };
+  } catch {
+    return { kind: "other" };
+  }
+}
+
 // One 12 s budget for the whole intake; the in-flight call is really aborted when it runs out.
 export async function intake(text: string, budgetMs = BUDGET_MS) {
   const signal = AbortSignal.timeout(budgetMs);

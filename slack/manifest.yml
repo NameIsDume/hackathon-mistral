@@ -19,9 +19,14 @@ oauth_config:
       - commands          # /incident (#40)
       - chat:write        # send DMs and update them after a button click
       - im:write          # open the DM conversation with each person
+      - im:history        # read free-text replies typed in the bot's DMs (#55, Events API)
       - users:read        # resolve people from the org chart
       - users:read.email  # match org chart e-mails to Slack user IDs
 settings:
+  event_subscriptions:
+    request_url: https://hackathon-mistral.vercel.app/api/slack/events
+    bot_events:
+      - message.im        # a person types a free-text reply in the bot's DM (#55)
   interactivity:
     is_enabled: true
     request_url: https://hackathon-mistral.vercel.app/api/slack/interactions
