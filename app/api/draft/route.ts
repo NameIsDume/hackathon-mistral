@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { draftNarrative } from "@/lib/adapters/mistral";
-import { listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
+import { IncidentNotFound, listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
 import { requireDemoKey } from "@/lib/demo-auth";
 import { evaluate } from "@/lib/regulations/gdpr";
 import { breachRegister, cnilNotification, toMarkdown } from "@/lib/regulations/gdpr/templates";
@@ -16,7 +16,13 @@ export async function POST(request: Request) {
   if (!body.success) return Response.json({ error: z.prettifyError(body.error) }, { status: 400 });
   const { incidentId, document } = body.data;
 
-  const [snapshot, events] = await Promise.all([loadSnapshot(incidentId), listEvents(incidentId)]);
+  let snapshot, events;
+  try {
+    [snapshot, events] = await Promise.all([loadSnapshot(incidentId), listEvents(incidentId)]);
+  } catch (e) {
+    if (e instanceof IncidentNotFound) return Response.json({ error: "incident not found" }, { status: 404 });
+    throw e;
+  }
   const assessment = evaluate(snapshot);
   let doc;
   if (document === "cnil_notification") {

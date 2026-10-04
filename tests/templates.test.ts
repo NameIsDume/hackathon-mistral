@@ -91,6 +91,15 @@ describe("CNIL notification draft", () => {
   });
 });
 
+describe("dates", () => {
+  it("are shown in Paris time, never as raw UTC", () => {
+    const md = toMarkdown(cnil(snap(NUVOLA), LATE));
+    expect(md).toContain("04/10/2026 09:12 (Paris)"); // first signal
+    expect(md).toContain("07/10/2026 10:00 (Paris)"); // 72-hour deadline
+    expect(md).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
 describe("breach register (Art. 33(5))", () => {
   const dpo = { role: "dpo" as const, name: "Camille Martin" };
   const events: EventRow[] = [
