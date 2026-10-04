@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { IncidentSnapshot } from "@/lib/domain";
 
+// after() needs a request scope; the DM trigger itself is tested in triggers.test.ts.
+vi.mock("next/server", async (orig) => ({ ...(await orig<object>()), after: () => {} }));
 const ID = "22222222-2222-4222-8222-222222222222";
 const loadSnapshot = vi.fn();
 const recordEvent = vi.fn();
@@ -45,7 +47,7 @@ describe("confirmSeverity", () => {
   it("reloads and retries once on a version conflict, then gives up", async () => {
     loadSnapshot.mockResolvedValueOnce(snap()).mockResolvedValueOnce(snap({ version: 5 }));
     recordEvent.mockRejectedValueOnce(new VersionConflict("x")).mockResolvedValueOnce(6);
-    await expect(confirmSeverity(ID, "major", alex)).resolves.toBe(6);
+    await expect(confirmSeverity(ID, "major", alex)).resolves.toEqual({ version: 6, previous: "average" });
     expect(recordEvent.mock.calls.map(([a]) => a.expectedVersion)).toEqual([4, 5]);
 
     recordEvent.mockReset().mockRejectedValue(new VersionConflict("x"));
