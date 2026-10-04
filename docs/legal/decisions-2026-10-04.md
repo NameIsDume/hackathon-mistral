@@ -21,7 +21,10 @@ EDPB = Guidelines 9/2022 on personal data breach notification. Anything here ove
 5. Yes/unknown → inform people directly, as soon as possible.
 6. Document the decision and why, whatever the outcome.
 
-**Art. 33(2) — processor informs the controller:** the image uploaded in Notion is a copy of the Art. 33 tree (asked Martyna for the right one). Use Q3/Q4 below.
+**Art. 33(2) — processor** (two lanes, updated by Martyna at 12:32 UTC)
+- Processor: breach detected on data processed for a controller → **notify each controller without undue delay, no risk check** (para 44) → assist and update in phases as facts emerge (para 45).
+- Controller: becomes aware on receipt (72 h starts) → instructs and requests facts (containment, logs; Art. 28(3)(f)) → assesses risk and decides (runs the Art. 33 and 34 trees) → notifies the authority, or authorises the processor (para 48).
+- **The controller documents (Art. 33(5)); the processor keeps its own record.**
 
 ## Answers to the questions
 
