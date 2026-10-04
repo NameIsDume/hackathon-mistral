@@ -59,6 +59,14 @@ const SHORT_LABEL: Record<(typeof DECIDABLE_OBLIGATIONS)[number], string> = {
   "gdpr.inform_subjects": "people concerned",
   "gdpr.notify_controller": "client",
 };
+
+// Obligations someone here signs. As processor (#47) the CNIL and the people concerned are the client's call, and as
+// controller there is no client to inform: no button, no "decision needed" for those.
+const ours = (assessment: Assessment) =>
+  DECIDABLE_OBLIGATIONS.filter((o) => {
+    const status = assessment.obligations.find((x) => x.id === o)?.status;
+    return status !== "controller_duty" && status !== "controller_decides" && !(o === "gdpr.notify_controller" && status === "not_required");
+  });
 const PHASED_WITHIN_MS = 12 * 3_600_000; // Q7: propose a phased notification this close to the 72 h deadline
 
 // Q13/Q14: how sure we are of a fact. Disputed and null count as unknown, like the rules.
@@ -253,7 +261,7 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
       });
   }
   if (stage) {
-    const elements = DECIDABLE_OBLIGATIONS.map((o) =>
+    const elements = ours(assessment).map((o) =>
       button(`${stage === "decision" ? "Decide" : "Recommend"}: ${SHORT_LABEL[o]}`, `sign_decision:${o}`, JSON.stringify({ incidentId: id, obligationId: o, stage })),
     );
     if (stage === "decision")
@@ -320,7 +328,7 @@ function signing(
 
   if (stage === "decision") {
     // Every decidable obligation not yet signed for good, unless it is "not required" and nobody recommended anything.
-    const needed = DECIDABLE_OBLIGATIONS.filter((o) => !settled(o) && (statusOf(o) !== "not_required" || latest(o, "recommendation")));
+    const needed = ours(assessment).filter((o) => !settled(o) && (statusOf(o) !== "not_required" || latest(o, "recommendation")));
     detail(needed.length ? `*Your decision is needed:* ${needed.map((o) => OBLIGATION_LABEL[o]).join("; ")}.` : "*No decision pending.*");
     out.push(needed.length ? `*Your decision is needed:* ${needed.map((o) => SHORT_LABEL[o]).join(", ")}.` : "*No decision pending.*");
   }
