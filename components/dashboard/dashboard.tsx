@@ -77,6 +77,7 @@ export function Dashboard({ incident, severity, facts, obligations, events, trac
           severity={severity}
           facts={facts}
           startAt={incident.awarenessAt ?? incident.firstSignalAt}
+          awarenessAt={incident.awarenessAt}
           now={now}
         />
 
