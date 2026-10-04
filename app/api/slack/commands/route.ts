@@ -12,7 +12,21 @@ const ephemeral = (text: string) => Response.json({ response_type: "ephemeral", 
 
 export async function POST(request: Request) {
   const raw = await request.text();
-  if (!verifySlackSignature(raw, request.headers, process.env.SLACK_SIGNING_SECRET ?? "")) return new Response("invalid signature", { status: 401 });
+  if (!verifySlackSignature(raw, request.headers, process.env.SLACK_SIGNING_SECRET ?? "")) {
+    // ponytail: temporary diagnostic for real /incident calls rejected in production (no secret, no body content logged).
+    const ts = request.headers.get("x-slack-request-timestamp");
+    console.warn("slash command rejected", {
+      hasTimestamp: !!ts,
+      ageSeconds: ts ? Math.round(Date.now() / 1000 - Number(ts)) : null,
+      signaturePrefix: request.headers.get("x-slack-signature")?.slice(0, 3) ?? null,
+      contentType: request.headers.get("content-type"),
+      userAgent: request.headers.get("user-agent"),
+      bodyLength: raw.length,
+      apiAppId: new URLSearchParams(raw).get("api_app_id"),
+      secretLength: (process.env.SLACK_SIGNING_SECRET ?? "").length,
+    });
+    return new Response("invalid signature", { status: 401 });
+  }
 
   const f = new URLSearchParams(raw);
   const [userId, userName, triggerId, responseUrl] = ["user_id", "user_name", "trigger_id", "response_url"].map((k) => f.get(k) ?? "");
