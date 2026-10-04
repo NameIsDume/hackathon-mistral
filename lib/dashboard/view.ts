@@ -1,4 +1,4 @@
-// View model for the suivi dashboard (#12): shapes incident_events rows into
+// View model for the incident report (#12): shapes incident_events rows into
 // the groups the UI renders — Slack DMs per role, responses, and the timeline.
 // No Supabase or LLM type leaks here; it speaks only the domain contracts.
 import type { IncidentEvent, Role, Severity } from "@/lib/domain";
@@ -7,13 +7,13 @@ import type { IncidentEvent, Role, Severity } from "@/lib/domain";
 export type EventRow = IncidentEvent & { id: string | number; at: string; actor: string };
 
 export const ROLE_LABEL: Record<Role, string> = {
-  reporter: "Signalement",
-  it: "IT / Sécurité",
-  business_owner: "Métier",
+  reporter: "Reporter",
+  it: "IT / Security",
+  business_owner: "Business owner",
   dpo: "DPO",
-  lawyer: "Juriste",
-  management: "Direction",
-  communications: "Communication",
+  lawyer: "Lawyer",
+  management: "Management",
+  communications: "Communications",
 };
 
 // A distinct, harmonious hue per role for the avatar chip. Tailwind-safe literals.
@@ -28,10 +28,10 @@ export const ROLE_ACCENT: Record<Role, string> = {
 };
 
 export const SEVERITY_LABEL: Record<Severity, string> = {
-  false_positive: "Faux positif",
-  minimal: "Mineur",
-  average: "Moyen",
-  major: "Majeur",
+  false_positive: "false positive",
+  minimal: "minor",
+  average: "average",
+  major: "major",
 };
 
 export const SEVERITY_TONE: Record<Severity, string> = {
@@ -45,17 +45,17 @@ export const NOTIFICATION_KIND_LABEL: Record<
   Extract<IncidentEvent, { type: "notification" }>["kind"],
   string
 > = {
-  brief: "Brief d'incident",
+  brief: "Incident brief",
   questions: "Questions",
-  assessment: "Évaluation",
-  management_note: "Note à la direction",
-  decision: "Décision",
+  assessment: "Assessment",
+  management_note: "Note to management",
+  decision: "Decision",
 };
 
 export const ANSWER_LABEL: Record<Extract<IncidentEvent, { type: "answer" }>["answer"], string> = {
-  yes: "Oui",
-  no: "Non",
-  unknown: "Inconnu",
+  yes: "Yes",
+  no: "No",
+  unknown: "Don't know",
 };
 
 export const ANSWER_TONE: Record<Extract<IncidentEvent, { type: "answer" }>["answer"], string> = {
@@ -71,13 +71,12 @@ export const initials = (name: string) =>
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
 
-const timeFmt = new Intl.DateTimeFormat("fr-FR", {
-  timeZone: "Europe/Paris",
-  hour: "2-digit",
-  minute: "2-digit",
-});
+const timeFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" });
+const dateFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 export const timeParis = (iso: string) => timeFmt.format(new Date(iso));
+// "Sun 4 Oct, 21:03", Europe/Paris.
+export const dateParis = (iso: string) => dateFmt.format(new Date(iso));
 
 // One Slack conversation: the person and every DM/answer involving their role, in order.
 export type RoleThread = {

@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+import type { Fact, Obligation, Severity } from "@/lib/domain";
+import { deriveColumns, formatDue, isOverdue } from "@/lib/dashboard/tasks";
+import type { EventRow } from "@/lib/dashboard/view";
+
+const it_ = { role: "it" as const, name: "Timothé" };
+const dpo = { role: "dpo" as const, name: "Cécile" };
+const lawyer = { role: "lawyer" as const, name: "Martyna" };
+const base = { at: "2026-10-04T14:25:00.000Z", actor: "core", slack: null, delivered: true, preview: "" };
+const fact = (value: unknown, state: "proposed" | "confirmed"): Fact<unknown> => ({ value, state, method: "llm", sources: [] });
+const obligation = (id: string, status: Obligation["status"]): Obligation => ({
+  id, status, factsToConfirm: [], reasons: [], legalRefs: [], citedFacts: [], blockingQuestions: [],
+});
+
+const events: EventRow[] = [
+  { ...base, id: 1, type: "notification", to: it_, kind: "questions", questionIds: ["gdpr.personal_data", "gdpr.encrypted", "gdpr.malicious"] },
+  { ...base, id: 2, type: "notification", to: dpo, kind: "assessment", questionIds: ["gdpr.processing_role"] },
+  { ...base, id: 3, type: "notification", to: lawyer, kind: "assessment", questionIds: [] },
+  { ...base, id: 4, type: "decision", stage: "recommendation", by: dpo, obligationId: "gdpr.notify_authority", choice: "notify", reasons: "r", factsVersion: 1, moduleVersion: "1" },
+];
+const severity: Fact<Severity> = { value: "major", state: "proposed", method: "llm", sources: [] };
+const facts = { personal_data: fact(true, "confirmed"), encrypted: fact(false, "proposed"), malicious: fact(null, "proposed") };
+const obligations = [obligation("gdpr.notify_authority", "required"), obligation("gdpr.inform_subjects", "not_required"), obligation("gdpr.record_breach", "required")];
+
+describe("who does what", () => {
+  const cols = deriveColumns(events, obligations, severity, facts);
+  const col = (role: string) => cols.find((c) => c.role === role)!;
+  const task = (role: string, id: string) => col(role).tasks.find((t) => t.id === id)!;
+
+  it("gives severity and awareness to the DPO, with T+1h, and puts the DPO first", () => {
+    expect(cols.map((c) => c.role)).toEqual(["dpo", "it", "lawyer"]);
+    expect(task("dpo", "severity")).toMatchObject({ due: 1, status: "in_progress" });
+    expect(col("it").tasks.some((t) => t.id === "severity")).toBe(false);
+  });
+
+  it("titles questions in plain language and derives their status from the facts", () => {
+    expect(col("it").tasks.map((t) => [t.title, t.status, t.due])).toEqual([
+      ["Did the files or systems affected contain information about real people?", "done", 12],
+      ["Were the files encrypted?", "in_progress", 12],
+      ["Was this a deliberate attack (not a mistake)?", "todo", 12],
+    ]);
+    expect(cols.flatMap((c) => c.tasks.map((t) => t.title)).join(" ")).not.toMatch(/gdpr\.|_/);
+  });
+
+  it("dates sign-off and documents, and only for obligations that ask something of us", () => {
+    expect(task("dpo", "rec-gdpr.notify_authority")).toMatchObject({ due: 24, status: "done" });
+    expect(task("lawyer", "dec-gdpr.notify_authority")).toMatchObject({ due: 48, status: "pending_validation" });
+    expect(task("dpo", "cnil")).toMatchObject({ due: 72, status: "todo" });
+    expect(formatDue(task("dpo", "register").due)).toBe("ongoing");
+    expect(col("lawyer").tasks.some((t) => t.id.includes("inform_subjects"))).toBe(false);
+  });
+
+  it("flags a task late against its relative deadline, never a done one", () => {
+    const start = Date.parse(base.at);
+    expect(isOverdue(task("dpo", "severity"), start, start + 2 * 3_600_000)).toBe(true);
+    expect(isOverdue(task("it", "q-gdpr.personal_data"), start, start + 13 * 3_600_000)).toBe(false);
+    expect(formatDue(12)).toBe("T+12h");
+  });
+});

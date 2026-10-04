@@ -1,17 +1,19 @@
-// Derives a per-person Kanban from the incident data: each involved role gets a
-// column, each column a few task cards built from the questions routed to that
-// role, the obligations it owns, and the confirmations it must make. Pure.
+// Derives the "who does what" board from the incident data: one row per involved
+// person, each with task cards built from the questions routed to them, the
+// confirmations they own (ROLE_MATRIX: severity and awareness are the DPO's), the
+// recommendation/decision they sign (DPO recommends, lawyer decides) and the documents. Pure.
 import type { Fact, Obligation, Role, Severity } from "@/lib/domain";
+import { GDPR_FACTS } from "@/lib/regulations/gdpr/facts";
 import type { EventRow } from "./view";
 
 export type TaskStatus = "done" | "in_progress" | "pending_validation" | "todo" | "blocked";
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
-  done: "Validée",
-  in_progress: "En cours",
-  pending_validation: "En attente de validation",
-  todo: "À faire",
-  blocked: "Bloquée",
+  done: "Done",
+  in_progress: "In progress",
+  pending_validation: "Waiting for sign-off",
+  todo: "To do",
+  blocked: "Blocked",
 };
 
 export const TASK_STATUS_TONE: Record<TaskStatus, string> = {
@@ -22,125 +24,133 @@ export const TASK_STATUS_TONE: Record<TaskStatus, string> = {
   blocked: "bg-destructive/15 text-destructive",
 };
 
-export type Task = { id: string; title: string; meta?: string; status: TaskStatus; hint?: string };
+// ponytail: provisional product values (hours after awareness, fallback first signal), pending the lawyers' validation.
+// Only the 72 h is legal (GDPR Art. 33(1)); the rest are internal targets.
+export const TASK_DUE_HOURS = { review: 1, question: 12, recommendation: 24, decision: 48, cnil: 72 } as const;
+
+// Hours after awareness, or a policy without a countdown.
+export type TaskDue = number | "without_undue_delay" | "ongoing";
+export type Task = { id: string; title: string; status: TaskStatus; due: TaskDue; hint?: string };
 export type Column = { role: Role; name: string; tasks: Task[]; done: number; total: number };
 
-// Short French labels for the fact questions (the GDPR catalogue wording is English).
-const FACT_LABEL: Record<string, string> = {
-  personal_data: "Données personnelles concernées ?",
-  breach_type: "Type de violation",
-  data_categories: "Catégories de données",
-  subjects_count: "Nombre de personnes",
-  subjects_categories: "Qui sont les personnes",
-  encrypted: "Données chiffrées ?",
-  keys_safe: "Clés / mots de passe sûrs ?",
-  still_exposed: "Donnée encore exposée ?",
-  malicious: "Attaque délibérée ?",
-  measures_taken: "Mesures de confinement",
-  processing_role: "Responsable ou sous-traitant ?",
-  cross_border: "Personnes hors de France ?",
-  high_risk: "Risque élevé pour les personnes ?",
+// "gdpr.personal_data" or "personal_data" -> the plain-language question from the catalogue.
+export const factLabel = (k: string) => {
+  const key = k.replace(/^gdpr\./, "");
+  return (GDPR_FACTS as Record<string, { question: string }>)[key]?.question ?? key.replaceAll("_", " ");
 };
-const factLabel = (k: string) => FACT_LABEL[k] ?? k;
+
+// "T+12h" / "without undue delay" / "ongoing".
+export const formatDue = (d: TaskDue) =>
+  typeof d === "number" ? `T+${d}h` : d === "ongoing" ? "ongoing" : "without undue delay";
+
+// A task is late when its relative deadline has passed and it is not done.
+export const isOverdue = (t: Task, startMs: number, now: number) =>
+  t.status !== "done" && typeof t.due === "number" && now > startMs + t.due * 3_600_000;
+
+// Rows read top-down in the order the work flows: the DPO steers, then the people who answer, then sign-off.
+const ROLE_ORDER: Role[] = ["dpo", "it", "business_owner", "lawyer", "management", "communications", "reporter"];
+
+// Decisions the DPO recommends and the lawyer signs (lib/services/decide.ts DECIDABLE_OBLIGATIONS).
+export const DECIDABLE: Record<string, string> = {
+  "gdpr.notify_authority": "notifying the CNIL",
+  "gdpr.inform_subjects": "informing the people concerned",
+  "gdpr.notify_controller": "informing the client",
+};
+// Only these statuses ask something of us; not_required / controller_duty / controller_decides do not.
+const needsAction = (o: Obligation | undefined): o is Obligation => o?.status === "required" || o?.status === "undetermined";
 
 type NotifRow = Extract<EventRow, { type: "notification" }>;
-type AnswerRow = Extract<EventRow, { type: "answer" }>;
+type DecisionRow = Extract<EventRow, { type: "decision" }>;
+type DraftRow = Extract<EventRow, { type: "draft" }>;
 
 export function deriveColumns(
   events: EventRow[],
   obligations: Obligation[],
   severity: Fact<Severity>,
-  awarenessAt: string | null,
+  facts: Record<string, Fact<unknown>>,
 ): Column[] {
-  const order: Role[] = [];
-  const people = new Map<Role, { name: string; notifs: NotifRow[]; answers: AnswerRow[] }>();
-  const ensure = (role: Role, name: string) => {
-    let e = people.get(role);
-    if (!e) {
-      e = { name, notifs: [], answers: [] };
-      people.set(role, e);
-      order.push(role);
-    }
-    if (name && e.name === "—") e.name = name;
-    return e;
-  };
+  const people = new Map<Role, { name: string; notifs: NotifRow[] }>();
   for (const ev of events) {
-    if (ev.type === "notification") ensure(ev.to.role, ev.to.name).notifs.push(ev);
-    else if (ev.type === "answer") ensure(ev.by.role, ev.by.name).answers.push(ev);
+    const who = ev.type === "notification" ? ev.to : ev.type === "answer" ? ev.by : null;
+    if (!who || who.role === "reporter") continue;
+    const p = people.get(who.role) ?? { name: who.name, notifs: [] };
+    if (ev.type === "notification") p.notifs.push(ev);
+    people.set(who.role, p);
   }
 
-  const decided = new Set(
-    events.filter((e) => e.type === "decision").map((e) => (e as Extract<EventRow, { type: "decision" }>).obligationId),
-  );
-  const hasDraft = events.some((e) => e.type === "draft");
+  const decisions = events.filter((e): e is DecisionRow => e.type === "decision");
+  const signed = (id: string, stage: "recommendation" | "decision") =>
+    decisions.findLast((d) => d.obligationId === id && (d.stage ?? "decision") === stage);
+  const drafts = (doc: DraftRow["document"]) => events.filter((e): e is DraftRow => e.type === "draft" && e.document === doc);
+  const docStatus = (doc: DraftRow["document"]): TaskStatus => {
+    const d = drafts(doc);
+    return d.some((x) => x.status === "sent") ? "done" : d.length ? "in_progress" : "todo";
+  };
+  const own = (id: string) => obligations.find((o) => o.id === id);
 
   const columns: Column[] = [];
-
-  for (const role of order) {
-    const p = people.get(role)!;
-    const answered = new Set(p.answers.map((a) => a.factKey));
-    const delivered = p.notifs.some((n) => n.kind === "questions" && n.delivered);
-    const anyUndelivered = p.notifs.some((n) => !n.delivered);
+  for (const role of ROLE_ORDER) {
+    const p = people.get(role);
+    if (!p) continue;
+    const undelivered = p.notifs.some((n) => !n.delivered);
     const tasks: Task[] = [];
 
-    // 1. Confirmations owned by the role.
-    if (role === "it")
-      tasks.push({
-        id: `${role}-severity`,
-        title: "Confirmer la gravité",
-        meta: "T+1 h",
-        status: severity.state === "confirmed" ? "done" : "todo",
-      });
-    if (role === "dpo")
-      tasks.push({
-        id: `${role}-awareness`,
-        title: "Confirmer la prise de connaissance",
-        meta: "départ du délai",
-        status: awarenessAt ? "done" : "todo",
-      });
-
-    // 2. Questions routed to the role (one card per fact asked of them).
-    const askedKeys: string[] = [];
-    for (const n of p.notifs) if (n.kind === "questions") for (const k of n.questionIds) if (!askedKeys.includes(k)) askedKeys.push(k);
-    for (const k of askedKeys) {
-      const status: TaskStatus = answered.has(k) ? "done" : anyUndelivered ? "blocked" : delivered ? "in_progress" : "todo";
-      tasks.push({
-        id: `${role}-q-${k}`,
-        title: factLabel(k),
-        meta: "question",
-        status,
-        hint: status === "blocked" ? "message non délivré" : undefined,
-      });
-    }
-
-    // 3. Obligations owned by the role.
-    const own = (id: string) => obligations.find((o) => o.id === id);
-    const obligationTask = (o: Obligation | undefined, title: string, meta: string): Task | null => {
-      if (!o || o.status === "not_required") return null;
-      let status: TaskStatus = "todo";
-      if (decided.has(o.id)) status = hasDraft ? "pending_validation" : "in_progress";
-      else if (o.factsToConfirm.length > 0) status = "in_progress";
-      else if (o.status === "undetermined") status = "todo";
-      return { id: `${role}-${o.id}`, title, meta, status, hint: o.factsToConfirm.length ? `faits : ${o.factsToConfirm.join(", ")}` : undefined };
-    };
+    // 1. Severity and awareness: the DPO's review controls (ROLE_MATRIX.dpo.review).
     if (role === "dpo") {
-      const t1 = obligationTask(own("gdpr.notify_authority"), "Rédiger la notification CNIL", "T+72 h");
-      if (t1) tasks.push(t1);
-      const rec = own("gdpr.record_breach");
-      if (rec && rec.status !== "not_required")
-        tasks.push({ id: `${role}-record`, title: "Tenir le registre des violations", meta: "en continu", status: "in_progress" });
+      tasks.push({
+        id: "severity",
+        title: "Confirm the severity",
+        due: TASK_DUE_HOURS.review,
+        status: severity.state === "confirmed" ? "done" : severity.value ? "in_progress" : "todo",
+      });
+      tasks.push({
+        id: "awareness",
+        title: "Confirm when we became aware (starts the 72 h clock)",
+        due: TASK_DUE_HOURS.review,
+        // Intake pre-fills awareness from the report; only an explicit confirmation counts.
+        status: events.some((e) => e.type === "awareness") ? "done" : "in_progress",
+      });
     }
-    if (role === "lawyer") {
-      const t = obligationTask(own("gdpr.inform_subjects"), "Décider de l'information des personnes", "Art. 34");
-      if (t) tasks.push({ ...t, status: anyUndelivered ? "blocked" : t.status, hint: anyUndelivered ? "message non délivré" : t.hint });
+
+    // 2. One card per fact asked of this person: confirmed = done, AI proposal awaiting confirmation = in progress.
+    const asked = [...new Set(p.notifs.flatMap((n) => (n.kind === "questions" || n.kind === "assessment" ? n.questionIds : [])))];
+    for (const q of asked) {
+      const f = facts[q.replace(/^gdpr\./, "")];
+      const known = f && f.value !== null && !f.dontKnowBy;
+      const status: TaskStatus =
+        known && f.state === "confirmed" ? "done" : undelivered ? "blocked" : known && f.state === "proposed" ? "in_progress" : "todo";
+      tasks.push({ id: `q-${q}`, title: factLabel(q), due: TASK_DUE_HOURS.question, status, hint: status === "blocked" ? "message not delivered" : undefined });
     }
-    if (role === "management")
-      tasks.push({ id: `${role}-comm`, title: "Arbitrer la communication externe", meta: "T+48 h", status: "pending_validation" });
+
+    // 3. Sign-off per obligation that asks something of us: the DPO recommends, the lawyer decides.
+    for (const [id, what] of Object.entries(DECIDABLE)) {
+      if (!needsAction(own(id))) continue;
+      const rec = signed(id, "recommendation");
+      const dec = signed(id, "decision");
+      if (role === "dpo")
+        tasks.push({ id: `rec-${id}`, title: `Recommend on ${what}`, due: TASK_DUE_HOURS.recommendation, status: rec || dec ? "done" : "todo" });
+      if (role === "lawyer")
+        tasks.push({
+          id: `dec-${id}`,
+          title: `Decide on ${what}`,
+          due: TASK_DUE_HOURS.decision,
+          status: dec ? "done" : undelivered ? "blocked" : rec ? "pending_validation" : "todo",
+          hint: !dec && undelivered ? "message not delivered" : undefined,
+        });
+    }
+
+    // 4. Documents the DPO sends and keeps.
+    if (role === "dpo") {
+      if (needsAction(own("gdpr.notify_authority")) && signed("gdpr.notify_authority", "decision")?.choice !== "do_not_notify")
+        tasks.push({ id: "cnil", title: "Draft and send the CNIL notification", due: TASK_DUE_HOURS.cnil, status: docStatus("cnil_notification") });
+      if (needsAction(own("gdpr.inform_subjects")) && signed("gdpr.inform_subjects", "decision")?.choice !== "do_not_notify")
+        tasks.push({ id: "subjects", title: "Inform the people concerned", due: "without_undue_delay", status: docStatus("subjects_notice") });
+      if (needsAction(own("gdpr.record_breach")))
+        tasks.push({ id: "register", title: "Keep the breach register up to date", due: "ongoing", status: "in_progress" });
+    }
 
     if (tasks.length === 0) continue;
-    const done = tasks.filter((t) => t.status === "done").length;
-    columns.push({ role, name: p.name, tasks, done, total: tasks.length });
+    columns.push({ role, name: p.name, tasks, done: tasks.filter((t) => t.status === "done").length, total: tasks.length });
   }
-
   return columns;
 }

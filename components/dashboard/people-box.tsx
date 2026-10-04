@@ -11,7 +11,7 @@ export function PeopleBox({ events }: { events: EventRow[] }) {
     <Card className="gap-4 p-5">
       <div className="flex items-center gap-2">
         <Users className="size-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Personnes impliquées</h2>
+        <h2 className="text-sm font-semibold">People involved</h2>
         <span className="ml-auto text-xs text-muted-foreground">{people.length}</span>
       </div>
 

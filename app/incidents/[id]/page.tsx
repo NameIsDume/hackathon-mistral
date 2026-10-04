@@ -6,8 +6,8 @@ import { latestBrief, toEventRows } from "@/lib/dashboard/view";
 import { evaluate } from "@/lib/regulations/gdpr";
 
 export const metadata = {
-  title: "Rapport d'incident",
-  description: "Incident réel : faits, réponses par rôle et horloges d'obligations, en direct.",
+  title: "Incident report",
+  description: "Live incident report: facts, answers per role and obligation clocks.",
 };
 
 // Every request (and every Realtime refresh) reloads the incident and re-runs the rules.
@@ -27,7 +27,7 @@ export default async function IncidentPage({ params }: PageProps<"/incidents/[id
     throw e;
   }
   const events = toEventRows(rows);
-  // No severity before extraction: show "moyen" (the AI's neutral default) until a human confirms.
+  // No severity before extraction: show "average" (the AI's neutral default) until a human confirms.
   const severityValue = snapshot.severity.value ?? "average";
 
   return (
@@ -36,12 +36,13 @@ export default async function IncidentPage({ params }: PageProps<"/incidents/[id
         id: snapshot.id,
         company: "",
         title: `Incident ${snapshot.id.slice(0, 8)}`,
-        brief: latestBrief(events) ?? "Résumé en cours d'extraction.",
+        brief: latestBrief(events) ?? "Summary being extracted.",
         severity: severityValue,
         firstSignalAt: snapshot.firstSignalAt,
         awarenessAt: snapshot.awarenessAt,
       }}
       severity={snapshot.severity}
+      facts={snapshot.facts}
       obligations={evaluate(snapshot).obligations}
       events={events}
       // ponytail: no insurer/police/ransom tracks for real incidents (the engine does not model them); per-role work is the Kanban, derived from events.

@@ -28,14 +28,14 @@ const P = {
   business: { role: "business_owner" as const, name: "Nadia Ben Salah" },
   dpo: { role: "dpo" as const, name: "Claire Dubois" },
   lawyer: { role: "lawyer" as const, name: "Marc Lefèvre" },
-  management: { role: "management" as const, name: "Directrice générale" },
+  management: { role: "management" as const, name: "Chief executive" },
 };
 
 const confirmed = <T>(value: T) => ({
   value,
   state: "confirmed" as const,
   method: "fixture" as const,
-  sources: [{ signalId: SIGNAL_ID, excerpt: "Données de démonstration (Nuvola SAS)." }],
+  sources: [{ signalId: SIGNAL_ID, excerpt: "Demo data (Nuvola SAS)." }],
 });
 
 // Facts per the scenario sheet: confidentiality (exports copied) + availability
@@ -60,7 +60,7 @@ export const mockSnapshot: IncidentSnapshot = {
     processing_role: confirmed("controller"),
     cross_border: confirmed(true),
     measures_taken: confirmed(
-      "Compte CRM verrouillé à 09:55, poste isolé du réseau, cabinet de réponse à incident de l'assureur mandaté.",
+      "CRM account locked at 09:55, laptop isolated from the network, the insurer's incident response firm engaged.",
     ),
   },
 };
@@ -69,10 +69,10 @@ export const mockAssessment: Assessment = GdprModule.evaluate(mockSnapshot);
 
 export const mockIncident = {
   id: INCIDENT_ID,
-  title: "Phishing → compromission CRM et rançongiciel",
+  title: "Phishing → CRM compromise and ransomware",
   company: "Nuvola SAS",
   brief:
-    "Un commercial a cliqué sur un lien d'hameçonnage ; connexion frauduleuse au compte CRM (droits admin, sans MFA) et téléchargement de 3 exports CRM complets. Le serveur et la sauvegarde ont ensuite été chiffrés (rançongiciel, demande de 180 k€). ~2 400 contacts B2B en FR/BE/PL : nom, e-mail pro, téléphone, fonction, historique commercial. Exports en CSV non chiffrés, aucune sauvegarde exploitable.",
+    "A salesperson clicked a phishing link; fraudulent login to the CRM account (admin rights, no MFA) and download of 3 full CRM exports. The server and the backup were then encrypted (ransomware, €180k demand). ~2,400 B2B contacts in FR/BE/PL: name, work email, phone, job title, sales history. Unencrypted CSV exports, no usable backup.",
   severity: "major" as const,
   firstSignalAt: FIRST_SIGNAL_AT,
   awarenessAt: AWARENESS_AT,
@@ -93,27 +93,27 @@ export type ScenarioTrack = {
 export const mockScenarioTracks: ScenarioTrack[] = [
   {
     id: "insurer",
-    label: "Assureur — déclaration du sinistre",
+    label: "Insurer: claim notification",
     dueAt: iso(FIRST_SIGNAL_MS + 48 * 3_600_000),
-    basis: "Conditions du contrat cyber",
-    owner: "Direction",
-    note: "Avant tout contact avec l'attaquant. Faits uniquement, aucune reconnaissance de responsabilité.",
+    basis: "Cyber policy terms",
+    owner: "Management",
+    note: "Before any contact with the attacker. Facts only, no admission of liability.",
   },
   {
     id: "police",
-    label: "Plainte (dépôt)",
+    label: "Police complaint",
     dueAt: iso(FIRST_SIGNAL_MS + 72 * 3_600_000),
-    basis: "Art. L12-10-1 C. assurances",
-    owner: "Juriste",
-    note: "Précondition au remboursement cyber par l'assureur.",
+    basis: "Art. L12-10-1 French Insurance Code",
+    owner: "Lawyer",
+    note: "Condition for the insurer to cover the cyber loss.",
   },
   {
     id: "ransom",
-    label: "Échéance de l'attaquant (rançon)",
+    label: "Attacker's deadline (ransom)",
     dueAt: iso(FIRST_SIGNAL_MS + (72 + 2) * 3_600_000 + 18 * 60_000),
-    basis: "Décision direction — bloquée",
-    owner: "Direction",
-    note: "Bloquée tant que ne sont pas enregistrés : accord écrit de l'assureur, plainte déposée, contrôle sanctions, notification CNIL envoyée ou programmée.",
+    basis: "Management decision, blocked",
+    owner: "Management",
+    note: "Blocked until recorded: the insurer's written consent, complaint filed, sanctions check, CNIL notification sent or scheduled.",
   },
 ];
 
@@ -126,7 +126,7 @@ export const mockEvents: EventRow[] = [
     signalId: SIGNAL_ID,
     connectorId: "slack-demo",
     excerpt:
-      "Je crois avoir cliqué sur un lien de phishing. Mon portable réagit bizarrement et je n'accède plus au CRM.",
+      "I think I clicked a phishing link. My laptop is acting weird and I can't access the CRM anymore.",
   },
   {
     id: 2,
@@ -134,7 +134,7 @@ export const mockEvents: EventRow[] = [
     actor: "core",
     type: "classification",
     isIncident: true,
-    reason: "Hameçonnage signalé avec perte d'accès au CRM : incident probable.",
+    reason: "Reported phishing with loss of CRM access: likely incident.",
     provenance: "mistral-medium-2604",
   },
   {
@@ -157,7 +157,7 @@ export const mockEvents: EventRow[] = [
     kind: "brief",
     questionIds: [],
     preview:
-      "Nouvel incident possible : phishing sur le poste de Léa Martin, perte d'accès au CRM. Peux-tu confirmer l'étendue ?",
+      "Possible new incident: phishing on Léa Martin's laptop, loss of CRM access. Can you confirm the scope?",
     slack: { channel: "D-IT-01", ts: "1" },
     delivered: true,
   },
@@ -170,7 +170,7 @@ export const mockEvents: EventRow[] = [
     kind: "questions",
     questionIds: ["personal_data", "breach_type", "still_exposed", "malicious", "encrypted"],
     preview:
-      "Les systèmes touchés contenaient-ils des données personnelles ? Données vues/copiées, modifiées ou rendues indisponibles ? La donnée est-elle encore accessible à l'attaquant ? Attaque délibérée ? Fichiers chiffrés ?",
+      "Did the systems affected contain personal data? Was data seen or copied, changed, or made unavailable? Is it still accessible to the attacker? Deliberate attack? Were the files encrypted?",
     slack: { channel: "D-IT-01", ts: "2" },
     delivered: true,
   },
@@ -223,7 +223,7 @@ export const mockEvents: EventRow[] = [
     kind: "questions",
     questionIds: ["data_categories", "subjects_count", "subjects_categories", "cross_border"],
     preview:
-      "Quelles catégories de données (coordonnées, bancaire, santé, pièce d'identité) ? Combien de personnes environ ? Qui sont-elles (clients, salariés, mineurs) ? Certaines sont-elles hors de France ?",
+      "What kind of data (contact, bank, health, ID)? Roughly how many people? Who are they (customers, staff, minors)? Are some outside France?",
     slack: { channel: "D-BIZ-01", ts: "3" },
     delivered: true,
   },
@@ -255,7 +255,7 @@ export const mockEvents: EventRow[] = [
     to: P.dpo,
     kind: "questions",
     questionIds: ["processing_role"],
-    preview: "Ces données sont-elles les nôtres (responsable de traitement) ou celles d'un client (sous-traitant) ?",
+    preview: "Is this our data (controller) or a client's (processor)?",
     slack: { channel: "D-DPO-01", ts: "4" },
     delivered: true,
   },
@@ -295,7 +295,7 @@ export const mockEvents: EventRow[] = [
     kind: "assessment",
     questionIds: [],
     preview:
-      "Violation probable : confidentialité (exports copiés) + disponibilité (perte permanente, pas de sauvegarde). Notification CNIL requise sous 72 h à compter de la prise de connaissance. CNIL autorité chef de file ; personnes concernées aussi en BE et PL.",
+      "Likely breach: confidentiality (exports copied) + availability (permanent loss, no backup). CNIL notification required within 72 h of awareness. CNIL is the lead authority; people concerned also in BE and PL.",
     slack: { channel: "D-DPO-01", ts: "5" },
     delivered: true,
   },
@@ -308,7 +308,7 @@ export const mockEvents: EventRow[] = [
     kind: "management_note",
     questionIds: [],
     preview:
-      "Incident majeur. Assureur à prévenir sous 48 h. Décision rançon bloquée tant que 4 conditions ne sont pas réunies (accord assureur, plainte, contrôle sanctions, CNIL envoyée/programmée).",
+      "Major incident. Notify the insurer within 48 h. Ransom decision blocked until 4 conditions are met (insurer consent, complaint, sanctions check, CNIL sent/scheduled).",
     slack: { channel: "D-MGT-01", ts: "6" },
     delivered: true,
   },
@@ -318,24 +318,25 @@ export const mockEvents: EventRow[] = [
     actor: "core",
     type: "notification",
     to: P.lawyer,
-    kind: "questions",
-    questionIds: ["high_risk"],
+    kind: "assessment",
+    questionIds: [],
     preview:
-      "Au vu des données détenues par un acteur malveillant, de la menace de publication et de la perte permanente : risque élevé pour les personnes (information Art. 34) ?",
+      "Data held by a malicious actor, threat of publication and permanent loss: high risk to the people concerned (Art. 34 information)? Your decision is needed.",
     slack: { channel: "D-LAW-01", ts: "7" },
     delivered: false,
-    error: "DM Slack non délivré (utilisateur hors ligne) — relance programmée.",
+    error: "Slack DM not delivered (user offline), reminder scheduled.",
   },
   {
     id: 20,
     at: atMin(75),
     actor: P.dpo.name,
     type: "decision",
+    stage: "recommendation",
     by: P.dpo,
     obligationId: "gdpr.notify_authority",
     choice: "notify",
     reasons:
-      "Violation de confidentialité (exports clients copiés) et de disponibilité (perte permanente), ~2 400 personnes, attaque délibérée : notification à la CNIL.",
+      "Confidentiality breach (customer exports copied) and availability breach (permanent loss), ~2,400 people, deliberate attack: notify the CNIL.",
     factsVersion: 5,
     moduleVersion: mockAssessment.moduleVersion,
   },

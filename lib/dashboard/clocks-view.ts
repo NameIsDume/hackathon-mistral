@@ -4,27 +4,27 @@ import { deadline } from "@/lib/clocks";
 import type { Obligation, ObligationStatus } from "@/lib/domain";
 
 export const OBLIGATION_LABEL: Record<string, string> = {
-  "gdpr.notify_authority": "Notifier la CNIL",
-  "gdpr.inform_subjects": "Informer les personnes concernées",
-  "gdpr.record_breach": "Registre des violations",
-  "gdpr.notify_controller": "Informer le responsable de traitement",
+  "gdpr.notify_authority": "CNIL notification",
+  "gdpr.inform_subjects": "Inform the people concerned",
+  "gdpr.record_breach": "Breach register",
+  "gdpr.notify_controller": "Inform the client (controller)",
 };
 
 export const obligationLabel = (id: string) => OBLIGATION_LABEL[id] ?? id;
 
 export const OBLIGATION_SUB: Record<string, string> = {
-  "gdpr.notify_authority": "RGPD art. 33",
-  "gdpr.inform_subjects": "RGPD art. 34",
-  "gdpr.record_breach": "RGPD art. 33(5)",
-  "gdpr.notify_controller": "RGPD art. 33(2)",
+  "gdpr.notify_authority": "GDPR Art. 33",
+  "gdpr.inform_subjects": "GDPR Art. 34",
+  "gdpr.record_breach": "GDPR Art. 33(5)",
+  "gdpr.notify_controller": "GDPR Art. 33(2)",
 };
 
 export const STATUS_LABEL: Record<ObligationStatus, string> = {
-  required: "Requis",
-  not_required: "Non requis",
-  undetermined: "À déterminer",
-  controller_duty: "Obligation du client",
-  controller_decides: "Le client décide",
+  required: "Required",
+  not_required: "Not required",
+  undetermined: "To be determined",
+  controller_duty: "Client's duty",
+  controller_decides: "Client decides",
 };
 
 export const STATUS_TONE: Record<ObligationStatus, string> = {
@@ -35,9 +35,9 @@ export const STATUS_TONE: Record<ObligationStatus, string> = {
   controller_decides: "bg-muted text-muted-foreground",
 };
 
-// "70 h 12" / "8 min" / "échéance dépassée".
+// "70 h 12" / "8 min" / "overdue".
 export function formatRemaining(remainingMs: number): string {
-  if (remainingMs <= 0) return "échéance dépassée";
+  if (remainingMs <= 0) return "overdue";
   const totalMin = Math.floor(remainingMs / 60_000);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
@@ -62,14 +62,14 @@ export function formatHMS(ms: number): string {
   return `${p(h)}:${p(m)}:${p(sec)}`;
 }
 
-// Coarse "2 j 06 h" / "6 h 47" / "47 min", for the secondary deadline strips.
+// Coarse "2 d 06 h" / "6 h 47" / "47 min", for the deadline list.
 export function formatDHM(ms: number): string {
-  if (ms <= 0) return "dépassée";
+  if (ms <= 0) return "overdue";
   const totalMin = Math.floor(ms / 60_000);
   const d = Math.floor(totalMin / 1440);
   const h = Math.floor((totalMin % 1440) / 60);
   const m = totalMin % 60;
-  if (d >= 1) return `${d} j ${String(h).padStart(2, "0")} h`;
+  if (d >= 1) return `${d} d ${String(h).padStart(2, "0")} h`;
   if (h >= 1) return `${h} h ${String(m).padStart(2, "0")}`;
   return `${m} min`;
 }
@@ -88,7 +88,7 @@ export type DueItem = {
 };
 
 // Every obligation/track that has a hard due date, soonest first — feeds the big
-// "prochain délai" timer, the deadline list and the timeline frise.
+// "next deadline" timer and the deadline list.
 export function dueItems(
   obligations: Obligation[],
   timeline: Timeline,
