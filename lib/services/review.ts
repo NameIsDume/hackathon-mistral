@@ -20,9 +20,12 @@ async function withRetry(incidentId: string, write: (s: IncidentSnapshot, key: s
   }
 }
 
-export function confirmSeverity(incidentId: string, value: Severity, by: Reviewer) {
-  return withRetry(incidentId, (s, key) =>
-    recordEvent({
+// Returns the previous value too, so the caller can notify the roles the new severity adds (#40, lib/services/triggers.ts).
+export async function confirmSeverity(incidentId: string, value: Severity, by: Reviewer) {
+  let previous = null as Severity | null; // assigned in the callback (a plain annotation would stay narrowed to null)
+  const version = await withRetry(incidentId, (s, key) => {
+    previous = s.severity.value;
+    return recordEvent({
       incidentId,
       expectedVersion: s.version,
       actor: by.name,
@@ -32,8 +35,9 @@ export function confirmSeverity(incidentId: string, value: Severity, by: Reviewe
         ...s.facts,
         severity: { value, state: "confirmed", method: "human", sources: [], confirmedBy: by.name, confirmedAt: new Date().toISOString() },
       },
-    }),
-  );
+    });
+  });
+  return { version, previous };
 }
 
 export async function setAwareness(incidentId: string, at: string, by: Reviewer) {

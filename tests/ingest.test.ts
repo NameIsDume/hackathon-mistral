@@ -14,6 +14,11 @@ vi.mock("@/lib/adapters/supabase", () => ({ db: () => ({ from: () => builder() }
 const intake = vi.fn();
 vi.mock("@/lib/adapters/mistral", () => ({ MODELS: { classify: "ministral-8b-2512" }, intake: (t: string) => intake(t) }));
 
+const scheduled: (() => unknown)[] = [];
+vi.mock("next/server", () => ({ after: (fn: () => unknown) => scheduled.push(fn) }));
+const afterIntake = vi.fn();
+vi.mock("@/lib/services/triggers", () => ({ afterIntake: (r: unknown) => afterIntake(r) }));
+
 const { ingestSignal } = await import("@/lib/services/ingest");
 const { POST } = await import("@/app/api/intake/route");
 
@@ -33,6 +38,8 @@ beforeEach(() => {
   let v = 1;
   recordEvent.mockImplementation(async () => ++v);
   intake.mockReset();
+  scheduled.length = 0;
+  afterIntake.mockReset().mockResolvedValue([]);
 });
 
 const newSignal = () =>
@@ -54,6 +61,13 @@ describe("ingestSignal", () => {
     expect(calls.map((a) => a.expectedVersion)).toEqual([1, 2, 3]); // version chain, no lost update
     expect(calls[2].facts.severity.value).toBe("average");
     expect(calls[2].event.factKeys).toEqual(["personal_data"]); // unknown facts are not listed
+  });
+
+  it("records the connector chosen by the server route (Slack)", async () => {
+    newSignal();
+    intake.mockResolvedValue({ classification: { isIncident: true, reason: "r" }, extraction: okExtraction });
+    await ingestSignal({ text: "laptop stolen", externalId: "t1" }, "slack");
+    expect(recordEvent.mock.calls[0][0].event.connectorId).toBe("slack");
   });
 
   it("does nothing on a replay of the same message id", async () => {
@@ -102,5 +116,19 @@ describe("POST /api/intake", () => {
     newSignal();
     intake.mockResolvedValue({ classification: { isIncident: true, reason: "r" }, extraction: okExtraction });
     expect((await POST(req({ text: "phishing" }, "demo_key=k"))).status).toBe(201);
+  });
+  it("schedules the DM wave once for a new incident, after the response (#40)", async () => {
+    newSignal();
+    intake.mockResolvedValue({ classification: { isIncident: true, reason: "r" }, extraction: okExtraction });
+    await POST(req({ text: "phishing" }, "demo_key=k"));
+    expect(afterIntake).not.toHaveBeenCalled(); // not before the response
+    expect(scheduled).toHaveLength(1);
+    await scheduled[0]();
+    expect(afterIntake).toHaveBeenCalledWith(expect.objectContaining({ status: "created", incidentId: "22222222-2222-4222-8222-222222222222" }));
+  });
+  it("schedules nothing on a replay", async () => {
+    queue.push({ error: { code: "23505", message: "duplicate" } }, { error: null, data: { incident_id: "inc-1" } });
+    expect((await POST(req({ text: "same", externalId: "m1" }, "demo_key=k"))).status).toBe(200);
+    expect(scheduled).toHaveLength(0);
   });
 });

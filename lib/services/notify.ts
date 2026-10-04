@@ -133,10 +133,11 @@ export async function recordWithRetry(incidentId: string, version: number, args:
   }
 }
 
-export async function notifyWave(incidentId: string, now = new Date()) {
+// `roles` restricts the wave (#40: only the newly concerned roles after a severity change); default = the whole wave.
+export async function notifyWave(incidentId: string, now = new Date(), roles?: Role[]) {
   const snapshot = await loadSnapshot(incidentId);
   const assessment = evaluate(snapshot);
-  const roles = waveFor(snapshot.severity.value);
+  roles ??= waveFor(snapshot.severity.value);
   const [people, events] = await Promise.all([
     db().from("people").select("id, name, role, slack_user_id").in("role", roles),
     db().from("incident_events").select("type, payload, idempotency_key").eq("incident_id", incidentId).order("id"),

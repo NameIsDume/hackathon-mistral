@@ -7,9 +7,16 @@ features:
   bot_user:
     display_name: Incichill
     always_online: true
+  slash_commands:
+    - command: /incident
+      url: https://hackathon-mistral.vercel.app/api/slack/commands
+      description: Report a possible data incident to the response team
+      usage_hint: "<what happened, when, which data>"
+      should_escape: false
 oauth_config:
   scopes:
     bot:
+      - commands          # /incident (#40)
       - chat:write        # send DMs and update them after a button click
       - im:write          # open the DM conversation with each person
       - users:read        # resolve people from the org chart

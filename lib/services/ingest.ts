@@ -31,10 +31,10 @@ export type IntakeResult =
       brief: string | null;
     };
 
-const CONNECTOR = "demo";
 const WORKSPACE = "demo";
 
-export async function ingestSignal(raw: IntakeInput): Promise<IntakeResult> {
+// connectorId is set by the server route (demo UI or Slack), never taken from the request body.
+export async function ingestSignal(raw: IntakeInput, connectorId = "demo"): Promise<IntakeResult> {
   const input = IntakeInput.parse(raw);
   const externalId = input.externalId ?? randomUUID();
   const occurredAt = input.occurredAt ?? new Date().toISOString();
@@ -44,7 +44,7 @@ export async function ingestSignal(raw: IntakeInput): Promise<IntakeResult> {
     .from("signals")
     .insert({
       workspace_id: WORKSPACE,
-      connector_id: CONNECTOR,
+      connector_id: connectorId,
       external_id: externalId,
       occurred_at: occurredAt,
       actor: input.actor,
@@ -57,7 +57,7 @@ export async function ingestSignal(raw: IntakeInput): Promise<IntakeResult> {
       .from("signals")
       .select("incident_id")
       .eq("workspace_id", WORKSPACE)
-      .eq("connector_id", CONNECTOR)
+      .eq("connector_id", connectorId)
       .eq("external_id", externalId)
       .single();
     return { status: "replayed", incidentId: (existing.data as { incident_id: string | null } | null)?.incident_id ?? null };
@@ -77,7 +77,7 @@ export async function ingestSignal(raw: IntakeInput): Promise<IntakeResult> {
     expectedVersion: 1,
     actor: input.actor,
     idempotencyKey: `signal:${signalId}`,
-    event: { type: "signal", signalId, connectorId: CONNECTOR, actor: input.actor, excerpt: input.text.slice(0, 280) },
+    event: { type: "signal", signalId, connectorId, actor: input.actor, excerpt: input.text.slice(0, 280) },
   });
 
   // 3. Mistral: one 12 s budget for classify + extract.
