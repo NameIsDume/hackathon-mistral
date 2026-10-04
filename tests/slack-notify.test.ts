@@ -110,7 +110,8 @@ describe("role scoping (Nuvola, severity average)", () => {
     const signs = (role: Role) => allActionIds(dmFor(role, s)).filter((i) => i.startsWith("sign_decision"));
     expect(signs("dpo")).toEqual(["sign_decision:gdpr.notify_controller"]);
     expect(signs("lawyer")).toEqual(["sign_decision:gdpr.notify_controller"]);
-    expect(dmFor("lawyer", s)?.all).toMatch(/decision is needed:\* client\./);
+    expect(dmFor("lawyer", s)?.all).toContain("• *Tell the client?* needed");
+    expect(dmFor("lawyer", s)?.all).not.toMatch(/Report to the CNIL\?|Tell the people affected\?/);
   });
 
   it("severity and awareness are the DPO's; signing buttons only go to SIGNERS, each with its own stage", () => {
@@ -169,6 +170,7 @@ describe("role scoping (Nuvola, severity average)", () => {
       "sign_decision:gdpr.notify_authority",
       "sign_decision:gdpr.inform_subjects",
       "sign_decision:gdpr.notify_controller",
+      "dm_details",
       "lawyer_ask",
       "lawyer_request_facts",
     ]);
@@ -251,7 +253,10 @@ describe("sober layout (#57)", () => {
     const dm = dmFor("lawyer")!;
     expect(dm.details.join("\n")).toContain("GDPR Art. 33(1)");
     expect(JSON.stringify(dm.blocks)).not.toContain("GDPR Art. 33(1)"); // reasons and legal refs only behind View details
-    expect(JSON.stringify(dm.blocks)).toContain("*Personal data involved*\\nYes · to confirm");
+    expect(JSON.stringify(dmFor("dpo")!.blocks)).toContain("*Personal data involved*\\nYes · to confirm");
+    // Martyna reads on a phone: one line per open decision, no facts grid.
+    expect(JSON.stringify(dm.blocks)).toContain("• *Report to the CNIL?* needed · no DPO advice yet");
+    expect(JSON.stringify(dm.blocks)).not.toContain("Personal data involved*\\n");
   });
 });
 
