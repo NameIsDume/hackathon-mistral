@@ -39,10 +39,14 @@ describe("afterIntake", () => {
     await afterIntake({ ...created, isIncident: null, extraction: "ok" });
     expect(roles()).toEqual([undefined, undefined]);
   });
-  it("only acknowledges the reporter for a non-incident or an unavailable extraction", async () => {
+  it("only acknowledges the reporter for a non-incident", async () => {
     await afterIntake({ ...created, isIncident: false, extraction: "skipped" });
+    expect(roles()).toEqual([["reporter"]]);
+  });
+  it("still alerts the whole wave when the extraction is unavailable (an outage never silences an alert)", async () => {
     await afterIntake({ ...created, isIncident: true, extraction: "unavailable" });
-    expect(roles()).toEqual([["reporter"], ["reporter"]]);
+    await afterIntake({ ...created, isIncident: null, extraction: "unavailable" });
+    expect(roles()).toEqual([undefined, undefined]);
   });
   it("sends nothing on a replay", async () => {
     await afterIntake({ status: "replayed", incidentId: ID });

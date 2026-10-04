@@ -7,11 +7,12 @@ import type { IntakeResult } from "@/lib/services/ingest";
 import { notifyWave, waveFor } from "@/lib/services/notify";
 import { confirmSeverity, type Reviewer } from "@/lib/services/review";
 
-// A replay sends nothing. Not an incident, or extraction unavailable (no brief, no proposed severity):
-// only the people holding the reporter role get their acknowledgement. Classification failure (null) fails open.
+// A replay sends nothing. Classified "not an incident": only the reporter gets an acknowledgement.
+// Everything else alerts the whole wave, including a failed classification or an unavailable extraction:
+// a Mistral outage must never silence an alert (R06); the DMs then say the summary is not available yet.
 export async function afterIntake(result: IntakeResult) {
   if (result.status !== "created") return [];
-  const full = result.isIncident !== false && result.extraction === "ok";
+  const full = result.isIncident !== false;
   return notifyWave(result.incidentId, new Date(), full ? undefined : ["reporter"]);
 }
 
