@@ -75,6 +75,13 @@ describe("setAwareness", () => {
     });
     expect(second.facts).toBeUndefined(); // facts untouched
   });
+
+  it("takes the first signal's minute (Slack picker precision) as the first signal itself", async () => {
+    loadSnapshot.mockResolvedValue(snap({ firstSignalAt: "2026-10-04T07:00:42.123Z" }));
+    await setAwareness(ID, "2026-10-04T07:00:00.000Z", alex);
+    expect(recordEvent.mock.calls[0][0]).toMatchObject({ awarenessAt: "2026-10-04T07:00:42.123Z" });
+    await expect(setAwareness(ID, "2026-10-04T06:59:00.000Z", alex)).rejects.toBeInstanceOf(InvalidAwareness);
+  });
 });
 
 const post = (route: { POST: (r: Request) => Promise<Response> }, body: unknown, cookie = "demo_key=k") =>

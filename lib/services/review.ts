@@ -45,7 +45,10 @@ export async function setAwareness(incidentId: string, at: string, by: Reviewer,
   const t = Date.parse(at);
   if (t > Date.now()) throw new InvalidAwareness("awareness time is in the future");
   return withRetry(incidentId, (s, key) => {
-    if (t < Date.parse(s.firstSignalAt)) throw new InvalidAwareness("awareness time is before the first signal");
+    const first = Date.parse(s.firstSignalAt);
+    // Slack's picker has minute precision: the minute of the first signal means the first signal itself.
+    if (t < first - (first % 60_000)) throw new InvalidAwareness("awareness time is before the first signal");
+    if (t < first) at = s.firstSignalAt;
     return recordEvent({
       incidentId,
       expectedVersion: s.version,
