@@ -23,12 +23,16 @@ export const STATUS_LABEL: Record<ObligationStatus, string> = {
   required: "Requis",
   not_required: "Non requis",
   undetermined: "À déterminer",
+  controller_duty: "Obligation du client",
+  controller_decides: "Le client décide",
 };
 
 export const STATUS_TONE: Record<ObligationStatus, string> = {
   required: "bg-primary/12 text-primary",
   not_required: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
   undetermined: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  controller_duty: "bg-muted text-muted-foreground",
+  controller_decides: "bg-muted text-muted-foreground",
 };
 
 // "70 h 12" / "8 min" / "échéance dépassée".
