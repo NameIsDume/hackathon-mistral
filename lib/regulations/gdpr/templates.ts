@@ -6,6 +6,7 @@
 // the lawyer approves them; the register and the notice only ever reuse the lawyer-approved wording.
 import { deadline, formatParis } from "@/lib/clocks";
 import type { Assessment, DraftSection, IncidentEvent, IncidentSnapshot, Obligation } from "@/lib/domain";
+import { factText, plainFacts, plainReason } from "./facts";
 
 export const MISSING = "Unknown, to be completed";
 const TO_CONFIRM = " (to be confirmed)";
@@ -58,9 +59,9 @@ const recommendation = (o: Obligation | undefined) => {
   // Cécile: an undetermined branch reads "Undetermined, [fact] unconfirmed".
   const status =
     o.status === "undetermined"
-      ? `Undetermined, ${(o.blockingQuestions.length ? o.blockingQuestions : o.citedFacts).join(", ") || "facts"} unconfirmed`
+      ? `Undetermined, ${(o.blockingQuestions.length ? o.blockingQuestions : o.citedFacts).map((k) => factText(k).toLowerCase()).join(", ") || "facts"} unconfirmed`
       : o.status.replaceAll("_", " ");
-  return `${status} (computed, ${o.legalRefs.join(", ")}): ${o.reasons.join(" ")}`;
+  return `${status} (computed, ${o.legalRefs.join(", ")}): ${o.reasons.map(plainReason).join(" ")}`;
 };
 
 // ---------------------------------------------------------------------------
@@ -89,7 +90,7 @@ const reasonsText = (r: unknown): string =>
   typeof r === "string" ? r : r && typeof r === "object" ? Object.values(r).flat().filter(Boolean).map(String).join(" ") : "";
 const CHOICE_LABEL: Record<string, string> = { notify: "Notify", do_not_notify: "Do not notify", defer: "Defer pending facts" };
 const describeDecision = (d: DecisionRow) =>
-  `${CHOICE_LABEL[d.choice] ?? d.choice}. Reasons: ${reasonsText(d.reasons)} Decided by ${d.by.name} (${d.by.role}) on ${when(d.at)}${d.factsVersion ? `, facts version ${d.factsVersion}` : ""}.`;
+  `${CHOICE_LABEL[d.choice] ?? d.choice}. Reasons: ${plainFacts(reasonsText(d.reasons))} Decided by ${d.by.name} (${d.by.role}) on ${when(d.at)}${d.factsVersion ? `, facts version ${d.factsVersion}` : ""}.`;
 
 type DraftEvent = Extract<IncidentEvent, { type: "draft" }>;
 const drafts = (events: EventRow[]) => events.flatMap((e) => (e.event.type === "draft" ? [{ at: e.at, ...e.event }] : [])) as (DraftEvent & { at: string })[];
@@ -213,6 +214,13 @@ export function cnilNotification(
 // ---------------------------------------------------------------------------
 
 const DECIDABLE = ["gdpr.notify_authority", "gdpr.inform_subjects", "gdpr.notify_controller"];
+// One name per track in the register (never the internal id).
+const TRACK: Record<string, string> = {
+  "gdpr.record_breach": "breach register",
+  "gdpr.notify_controller": "informing the client",
+  "gdpr.notify_authority": "CNIL notification",
+  "gdpr.inform_subjects": "informing the people concerned",
+};
 
 export function breachRegister(snapshot: IncidentSnapshot, assessment: Assessment, events: EventRow[], now = new Date()): GdprDocument {
   const state = draftState(events);
@@ -248,10 +256,10 @@ export function breachRegister(snapshot: IncidentSnapshot, assessment: Assessmen
     {
       heading: "Decision and reasons",
       fields: [
-        ...assessment.obligations.map((o) => given(`Recommendation: ${o.id}`, recommendation(o))),
-        ...recs.map((d) => given(`DPO recommendation: ${d.obligationId}`, describeDecision(d))),
-        ...all.filter((d) => DECIDABLE.includes(d.obligationId)).map((d) => given(`Decision: ${d.obligationId}`, describeDecision(d))),
-        ...(notifyDecision ? [] : [missing("Decision: gdpr.notify_authority")]),
+        ...assessment.obligations.map((o) => given(`Recommendation: ${TRACK[o.id] ?? o.id}`, recommendation(o))),
+        ...recs.map((d) => given(`DPO recommendation: ${TRACK[d.obligationId] ?? d.obligationId}`, describeDecision(d))),
+        ...all.filter((d) => DECIDABLE.includes(d.obligationId)).map((d) => given(`Decision: ${TRACK[d.obligationId] ?? d.obligationId}`, describeDecision(d))),
+        ...(notifyDecision ? [] : [missing(`Decision: ${TRACK["gdpr.notify_authority"]}`)]),
       ],
     },
   ];
@@ -269,7 +277,13 @@ export function breachRegister(snapshot: IncidentSnapshot, assessment: Assessmen
   const timeline: Field[] = [given("First signal", when(snapshot.firstSignalAt))];
   for (const { at, event: e } of events) {
     if (e.type === "awareness") timeline.push(given(`${when(at)} · Awareness set`, `${when(e.at)} by ${e.by.name} (${e.by.role})`));
-    if (e.type === "decision") timeline.push(given(`${when(at)} · Decision on ${e.obligationId}`, `${e.choice} by ${e.by.name} (${e.by.role})`));
+    if (e.type === "decision")
+      timeline.push(
+        given(
+          `${when(at)} · ${e.stage === "recommendation" ? "DPO recommendation" : "Decision"} on ${TRACK[e.obligationId] ?? e.obligationId}`,
+          `${CHOICE_LABEL[e.choice] ?? e.choice}, by ${e.by.name} (${e.by.role === "dpo" ? "DPO" : e.by.role.replace("_", " ")})`,
+        ),
+      );
     if (e.type === "draft" && e.status === "draft") timeline.push(given(`${when(at)} · Draft ${e.document}`, "generated"));
     if (e.type === "draft" && e.status === "section_approved")
       timeline.push(given(`${when(at)} · Section approved: ${e.section}`, `by ${e.by?.name ?? "unknown"} (${e.by?.role ?? "unknown"})`));

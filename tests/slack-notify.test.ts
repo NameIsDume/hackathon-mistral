@@ -161,9 +161,9 @@ describe("role scoping (Nuvola, severity average)", () => {
     s.facts.encrypted = { ...s.facts.encrypted, state: "confirmed", confirmedBy: "Hugo Leroy" };
     s.facts.keys_safe = { value: null, state: "proposed", method: "llm", sources: [] };
     const dm = dmFor("lawyer", s, { decisions: [rec("notify")] })!;
-    expect(dm.text).toContain("encrypted: No — confirmed by Hugo Leroy");
-    expect(dm.text).toContain("processing_role: controller — proposed by the AI, not confirmed");
-    expect(dm.text).toContain("keys_safe: unknown — unknown");
+    expect(dm.text).toContain("Files were encrypted: No — confirmed by Hugo Leroy");
+    expect(dm.text).toContain("Our data or a client's: controller — proposed by the AI, not confirmed");
+    expect(dm.text).toContain("Password or key still safe: unknown — unknown");
     expect(dm.text).toContain("*Open questions*\n• ");
     expect(dm.text).toContain("subjects_categories (asked to business owner)");
     expect(dm.text).toContain("*DPO recommendations*\n• Notify the data protection authority (CNIL): *notify*, by Claire Martin");
