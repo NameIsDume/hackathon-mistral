@@ -31,8 +31,8 @@ export async function openDm(userId: string): Promise<string> {
   return (await call<{ channel: { id: string } }>("conversations.open", { users: userId })).channel.id;
 }
 
-export async function postDm(channel: string, blocks: Block[], text: string): Promise<{ channel: string; ts: string }> {
-  const r = await call<{ channel: string; ts: string }>("chat.postMessage", { channel, blocks, text });
+export async function postDm(channel: string, blocks: Block[], text: string, threadTs?: string): Promise<{ channel: string; ts: string }> {
+  const r = await call<{ channel: string; ts: string }>("chat.postMessage", { channel, blocks, text, ...(threadTs && { thread_ts: threadTs }) });
   return { channel: r.channel, ts: r.ts };
 }
 

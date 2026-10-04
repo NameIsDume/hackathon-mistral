@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { verifySlackSignature } from "@/lib/adapters/slack";
 import { handleInteraction, type Outcome } from "@/lib/services/slack-actions";
+import { handleConvoInteraction, isConvoInteraction } from "@/lib/services/conversation";
 
 export const maxDuration = 60; // drafts after a decision call Mistral (12 s budget) then post to Slack
 
@@ -13,7 +14,9 @@ export async function POST(request: Request) {
 
   let outcome: Outcome;
   try {
-    outcome = await handleInteraction(JSON.parse(new URLSearchParams(raw).get("payload") ?? ""));
+    const payload = JSON.parse(new URLSearchParams(raw).get("payload") ?? "");
+    // Confirm all / Edit under a free-text answer (#55): lib/services/conversation.ts.
+    outcome = isConvoInteraction(payload) ? await handleConvoInteraction(payload) : await handleInteraction(payload);
   } catch (e) {
     if (e instanceof z.ZodError || e instanceof SyntaxError) return new Response("unsupported payload", { status: 400 });
     console.error("slack interaction failed", e);

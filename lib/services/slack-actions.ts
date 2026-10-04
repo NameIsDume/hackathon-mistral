@@ -82,10 +82,10 @@ const WHO: Record<Stage, string> = { recommendation: "the DPO can record a recom
 // Shared steps
 // ---------------------------------------------------------------------------
 
-type By = { role: Role; name: string; slackUserId: string };
+export type By = { role: Role; name: string; slackUserId: string };
 
 // The clicker must be in `people` with the role the action needs.
-async function personWithRole(slackUserId: string, role: Role): Promise<By | null> {
+export async function personWithRole(slackUserId: string, role: Role): Promise<By | null> {
   const { data, error } = await db().from("people").select("name, role, slack_user_id").eq("slack_user_id", slackUserId).eq("role", role).maybeSingle();
   if (error) throw new Error(error.message);
   return data ? { role, name: (data as { name: string }).name, slackUserId } : null;
@@ -104,8 +104,8 @@ async function tell(p: BlockActions, text: string) {
 // One fact change + its `answer` event. Rebuilt from a fresh snapshot on each attempt (record_event replaces the whole
 // facts object); one retry on a version conflict. Returns false when `change` declines (nothing to write).
 // The frozen `answer` event only carries yes/no/unknown: a non-boolean value lives in the fact itself (answer "yes").
-type Answer = "yes" | "no" | "unknown";
-async function recordFact(
+export type Answer = "yes" | "no" | "unknown";
+export async function recordFact(
   incidentId: string,
   factKey: string,
   by: By,
@@ -134,7 +134,7 @@ async function recordFact(
   }
 }
 
-const confirmed = (old: Fact<unknown>, value: unknown, by: By): Fact<unknown> => ({
+export const confirmed = (old: Fact<unknown>, value: unknown, by: By): Fact<unknown> => ({
   ...old,
   value,
   state: "confirmed",

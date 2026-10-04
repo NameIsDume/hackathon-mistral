@@ -4,6 +4,10 @@ display_information:
   name: Incichill
   description: Incident response copilot (GDPR) - demo, fictional data only
 features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true            # people write to the bot in its DM (#55)
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: Incichill
     always_online: true
@@ -19,9 +23,14 @@ oauth_config:
       - commands          # /incident (#40)
       - chat:write        # send DMs and update them after a button click
       - im:write          # open the DM conversation with each person
+      - im:history        # read the free-text answers and questions people write in their DM (#55)
       - users:read        # resolve people from the org chart
       - users:read.email  # match org chart e-mails to Slack user IDs
 settings:
+  event_subscriptions:
+    request_url: https://hackathon-mistral.vercel.app/api/slack/events
+    bot_events:
+      - message.im        # free-text answers and questions in the DM (#55)
   interactivity:
     is_enabled: true
     request_url: https://hackathon-mistral.vercel.app/api/slack/interactions
