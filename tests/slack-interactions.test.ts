@@ -144,6 +144,13 @@ describe("POST /api/slack/interactions", () => {
     expect(bodies("chat.update")[0]).toMatchObject({ channel: "D1", ts: "1.1", text: "Confirmed: No" });
   });
 
+  it("\"I don't know\" is recorded as answered by a human, value still unknown", async () => {
+    await post(click("keys_safe", "unknown"));
+    const arg = m.recordEvent.mock.calls[0][0];
+    expect(arg.facts.keys_safe).toMatchObject({ value: null, state: "confirmed", method: "human", confirmedBy: "Hugo Leroy" });
+    expect(arg.event).toMatchObject({ type: "answer", factKey: "keys_safe", answer: "unknown" });
+  });
+
   it("Wrong marks the fact disputed (value kept for the record) and the refreshed DM asks for the right value", async () => {
     await post(factButton("fact_wrong", "breach_type"));
     const arg = m.recordEvent.mock.calls[0][0];

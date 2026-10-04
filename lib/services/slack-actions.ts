@@ -230,7 +230,7 @@ async function onAction(p: BlockActions): Promise<Outcome> {
         const by = await personWithRole(p.user.id, GDPR_FACTS[v.factKey as GdprFactKey].role);
         if (!by) return refused("This question");
         await recordFact(v.incidentId, v.factKey, by, key, (old) => ({
-          fact: v.answer === "unknown" ? { ...old, value: null } : confirmed(old, v.answer === "yes", by),
+          fact: confirmed(old, v.answer === "unknown" ? null : v.answer === "yes", by), // "I don't know": answered, value stays unknown
           answer: v.answer,
         }));
         await refreshDms(v.incidentId, `Answer recorded: ${ANSWER_LABEL[v.answer]}`, { role: by.role, ...where });
