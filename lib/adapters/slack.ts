@@ -40,6 +40,11 @@ export async function updateMessage(channel: string, ts: string, blocks: Block[]
   await call("chat.update", { channel, ts, blocks, text });
 }
 
+// Must run within 3 s of the click that produced trigger_id, i.e. before the interaction is acknowledged.
+export async function openView(triggerId: string, view: Block): Promise<void> {
+  await call("views.open", { trigger_id: triggerId, view });
+}
+
 // users.lookupByEmail only takes form/query arguments, not JSON.
 export async function lookupUserIdByEmail(email: string): Promise<string> {
   const res = await fetch(`https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`, {
@@ -80,4 +85,29 @@ export function questionBlocks(incidentId: string, factKey: string, text: string
       })),
     },
   ];
+}
+
+export const plain = (text: string, max = 75): Block => ({ type: "plain_text", text: text.slice(0, max) });
+export const option = (value: string, text = value.replaceAll("_", " ")): Block => ({ text: plain(text), value });
+
+export const button = (text: string, actionId: string, value: string, style?: "primary" | "danger"): Block => ({
+  type: "button",
+  action_id: actionId,
+  text: plain(text),
+  value,
+  ...(style && { style }),
+});
+
+// A Markdown document (lib/regulations/gdpr/templates.ts toMarkdown) as readable blocks: title as header,
+// headings and bold in mrkdwn, split into sections under the 3000-character cap, at most 50 blocks per message.
+export function markdownBlocks(md: string): Block[] {
+  const [title, ...rest] = md.trim().split("\n");
+  const body = rest.join("\n").replace(/^#+ (.*)$/gm, "*$1*").replace(/\*\*(.+?)\*\*/g, "*$1*").trim();
+  const chunks: string[] = [];
+  for (const line of body.split("\n")) {
+    const last = chunks.at(-1);
+    if (last !== undefined && last.length + line.length + 1 <= 3000) chunks[chunks.length - 1] = `${last}\n${line}`;
+    else chunks.push(line);
+  }
+  return [header(title.replace(/^# /, "")), ...chunks.filter((c) => c.trim()).map(section)].slice(0, 50);
 }
