@@ -1,6 +1,6 @@
-# Incichill
+# Sphynx
 
-When a company suspects a data breach, the hardest part isn't the technical clean-up — it's the law. Within 72 hours someone has to figure out whether regulators must be told, whether the people whose data leaked must be warned, and get the paperwork right, all while facts are still coming in and the clock is running. **Incichill is a copilot that runs that process from the first Slack message**: it starts the clock, asks only the right people the few questions that actually change the legal answer, works out what the law requires, and drafts the notifications — leaving every real decision to a human.
+When a company suspects a data breach, the hardest part isn't the technical clean-up — it's the law. Within 72 hours someone has to figure out whether regulators must be told, whether the people whose data leaked must be warned, and get the paperwork right, all while facts are still coming in and the clock is running. **Sphynx is a copilot that runs that process from the first Slack message**: it starts the clock, asks only the right people the few questions that actually change the legal answer, works out what the law requires, and drafts the notifications — leaving every real decision to a human.
 
 > **The promise:** from the first message, the tool starts the clock, asks the right people only the questions that change the GDPR analysis, and prepares the assessment and the drafts. The lawyer decides, and everything is recorded.
 
