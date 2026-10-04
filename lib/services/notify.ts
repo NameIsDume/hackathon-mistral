@@ -126,7 +126,7 @@ const OBLIGATION_SHORT: Record<string, string> = {
   "gdpr.notify_authority": "CNIL notification",
   "gdpr.inform_subjects": "Informing the people concerned",
 };
-export const factLabel = (key: string) => key.charAt(0).toUpperCase() + key.slice(1).replaceAll("_", " ");
+export const factLabel = (key: string) => GDPR_FACTS[key as GdprFactKey]?.label ?? key.charAt(0).toUpperCase() + key.slice(1).replaceAll("_", " ");
 const shortState = (f: Fact<unknown>) =>
   (f.state === "disputed" ? "marked wrong" : f.value === null ? "unknown" : f.state === "confirmed" ? "confirmed" : "to confirm") + (f.dontKnowBy ? ", I don't know" : "");
 const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);

@@ -244,7 +244,7 @@ describe("sober layout (#57)", () => {
     const dm = dmFor("lawyer")!;
     expect(dm.details.join("\n")).toContain("GDPR Art. 33(1)");
     expect(JSON.stringify(dm.blocks)).not.toContain("GDPR Art. 33(1)"); // reasons and legal refs only behind View details
-    expect(JSON.stringify(dm.blocks)).toContain("*Personal data*\\nYes · to confirm");
+    expect(JSON.stringify(dm.blocks)).toContain("*Personal data involved*\\nYes · to confirm");
   });
 });
 
