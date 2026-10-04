@@ -4,18 +4,19 @@ import { evaluate } from "@/lib/regulations/gdpr";
 import { GDPR_FACTS, GDPR_QUESTIONS } from "@/lib/regulations/gdpr/facts";
 import { INCIDENT_ID, NUVOLA, fakeDb, slackOk, snap } from "./helpers/slack";
 
-const m = vi.hoisted(() => ({ db: vi.fn(), loadSnapshot: vi.fn(), recordEvent: vi.fn() }));
+const m = vi.hoisted(() => ({ db: vi.fn(), loadSnapshot: vi.fn(), recordEvent: vi.fn(), listEvents: vi.fn(async () => []) }));
 vi.mock("@/lib/adapters/supabase", async (orig) => ({ ...(await orig<object>()), ...m }));
 
 import { ROLE_MATRIX, WAVES, buildDm, notifyWave, waveFor } from "@/lib/services/notify";
+import { SIGNERS, type DecisionStatus } from "@/lib/services/decide";
 
 const now = new Date("2026-10-04T10:00:00+02:00");
 type Dm = { blocks: Record<string, unknown>[] } | null;
 const allActionIds = (dm: Dm) =>
   (dm?.blocks ?? []).flatMap((b) => [...((b.elements as { action_id: string }[]) ?? []), ...(b.accessory ? [b.accessory as { action_id: string }] : [])]).map((e) => e.action_id);
 const actionsOf = (dm: Dm, blockId: string) => allActionIds({ blocks: (dm?.blocks ?? []).filter((b) => b.block_id === blockId) });
-const dmFor = (role: Role, s = snap(NUVOLA)) => {
-  const dm = buildDm(role, { snapshot: s, assessment: evaluate(s), brief: "Phishing on the CRM: 3 exports downloaded.", now });
+const dmFor = (role: Role, s = snap(NUVOLA), extra: { decisions?: DecisionStatus[]; reask?: string[]; now?: Date } = {}) => {
+  const dm = buildDm(role, { snapshot: s, assessment: evaluate(s), brief: "Phishing on the CRM: 3 exports downloaded.", now, ...extra });
   return dm && { ...dm, all: dm.text + JSON.stringify(dm.blocks) };
 };
 
@@ -38,27 +39,33 @@ describe("role scoping (Nuvola, severity average)", () => {
 
   it("AI-proposed facts get Confirm/Wrong with the value and excerpt; unknown booleans keep Yes/No/I don't know", () => {
     const dm = dmFor("it")!;
-    expect(actionsOf(dm, "encrypted")).toEqual(["fact_confirm", "fact_wrong"]);
-    expect(actionsOf(dm, "breach_type")).toEqual(["fact_confirm", "fact_wrong"]);
+    expect(actionsOf(dm, "encrypted")).toEqual(["fact_confirm", "fact_wrong", "fact_dont_know"]);
+    expect(actionsOf(dm, "breach_type")).toEqual(["fact_confirm", "fact_wrong", "fact_dont_know"]);
     expect(actionsOf(dm, "still_exposed")).toEqual(["answer_yes", "answer_no", "answer_unknown"]);
     expect(dm.all).toContain("The AI suggests: *No*");
     expect(dm.all).toContain("about encrypted");
   });
 
-  it("a fact answered \"I don't know\" by a human is not asked again", () => {
+  it("Q13: a fact answered \"I don't know\" is not asked again, an AI proposal included (it stays proposed)", () => {
     const s = snap(NUVOLA);
-    s.facts.still_exposed = { value: null, state: "confirmed", method: "human", sources: [], confirmedBy: "Hugo", confirmedAt: "2026-10-04T10:00:00Z" };
+    const dontKnow = { dontKnowBy: "Hugo", dontKnowAt: "2026-10-04T10:00:00Z" };
+    s.facts.still_exposed = { value: null, state: "proposed", method: "human", sources: [], ...dontKnow };
+    s.facts.encrypted = { ...s.facts.encrypted, ...dontKnow };
     const dm = dmFor("it", s)!;
     expect(dm.questionIds).not.toContain("gdpr.still_exposed");
+    expect(dm.questionIds).not.toContain("gdpr.encrypted");
     expect(actionsOf(dm, "still_exposed")).toEqual([]);
+    expect(dmFor("dpo", s)!.text).toContain(`encrypted: No — proposed by the AI, not confirmed; "I don't know" from Hugo`);
+    // unless the lawyer asks for it again
+    expect(dmFor("it", s, { reask: ["encrypted"] })!.questionIds).toContain("gdpr.encrypted");
   });
 
   it("non-boolean unknown or disputed facts get an Answer button", () => {
-    expect(actionsOf(dmFor("business_owner")!, "subjects_categories")).toEqual(["fact_input"]); // unknown, blocking
+    expect(actionsOf(dmFor("business_owner")!, "subjects_categories")).toEqual(["fact_input", "fact_dont_know"]); // unknown, blocking
     const s = snap(NUVOLA);
     s.facts.processing_role.state = "disputed";
     const dm = dmFor("dpo", s)!;
-    expect(actionsOf(dm, "processing_role")).toEqual(["fact_input"]);
+    expect(actionsOf(dm, "processing_role")).toEqual(["fact_input", "fact_dont_know"]);
     expect(dm.all).toContain("was marked wrong");
   });
 
@@ -77,17 +84,24 @@ describe("role scoping (Nuvola, severity average)", () => {
     expect(dm.questionIds).toEqual(["gdpr.processing_role"]);
     expect(dm.all).toContain("GDPR Art. 33(1)");
     expect(dm.all).toContain("72h authority deadline");
-    expect(actionsOf(dm, "processing_role")).toEqual(["fact_confirm", "fact_wrong"]);
+    expect(actionsOf(dm, "processing_role")).toEqual(["fact_confirm", "fact_wrong", "fact_dont_know"]);
     const ids = allActionIds(dm);
     expect(ids).toEqual(expect.arrayContaining(["severity", "awareness", "sign_decision:gdpr.notify_authority", "sign_decision:gdpr.inform_subjects", "sign_decision:gdpr.notify_controller"]));
     const sev = dm.blocks.find((b) => (b.accessory as { action_id?: string })?.action_id === "severity")!.accessory as { options: { value: string }[] };
     expect(sev.options.map((o) => JSON.parse(o.value))).toContainEqual({ incidentId: INCIDENT_ID, severity: "major" });
   });
 
-  it("no other role ever gets the severity, awareness or signature controls", () => {
-    for (const role of Role.options.filter((r) => r !== "dpo")) {
-      const ids = allActionIds(dmFor(role, snap(NUVOLA)));
-      expect(ids.filter((i) => i === "severity" || i === "awareness" || i.startsWith("sign_decision")), role).toEqual([]);
+  it("severity and awareness are the DPO's; signing buttons only go to SIGNERS, each with its own stage", () => {
+    for (const role of Role.options) {
+      const dm = dmFor(role, snap(NUVOLA));
+      const ids = allActionIds(dm);
+      if (role !== "dpo") expect(ids.filter((i) => i === "severity" || i === "awareness"), role).toEqual([]);
+      const signs = (dm?.blocks ?? [])
+        .flatMap((b) => (b.elements as { action_id: string; value: string }[] | undefined) ?? [])
+        .filter((e) => e.action_id.startsWith("sign_decision"));
+      const stage = (Object.keys(SIGNERS) as (keyof typeof SIGNERS)[]).find((k) => SIGNERS[k] === role);
+      expect(signs.map((e) => JSON.parse(e.value).stage), role).toEqual(stage ? [stage, stage, stage] : []);
+      if (role !== "lawyer") expect(ids.filter((i) => i.startsWith("lawyer_")), role).toEqual([]);
     }
   });
 
@@ -96,10 +110,70 @@ describe("role scoping (Nuvola, severity average)", () => {
     expect(dmFor("communications")).toBeNull();
   });
 
-  it("the lawyer is asked to decide only while informing the people concerned is undetermined", () => {
-    expect(dmFor("lawyer")!.all).toContain("Your decision is needed");
-    const decided = snap({ ...NUVOLA, data_categories: ["financial"] });
-    expect(dmFor("lawyer", decided)!.all).not.toContain("Your decision is needed");
+  const rec = (choice: "notify" | "defer", stage: "recommendation" | "decision" = "recommendation"): DecisionStatus => ({
+    obligationId: "gdpr.notify_authority",
+    stage,
+    eventId: 9,
+    at: "2026-10-04T09:30:00Z",
+    status: "current",
+    decision: {
+      type: "decision",
+      stage,
+      by: stage === "recommendation" ? { role: "dpo", name: "Claire Martin" } : { role: "lawyer", name: "Inès Haddad" },
+      obligationId: "gdpr.notify_authority",
+      choice,
+      reasons: "Facts relied on: personal_data.\nRisk factors: 2,400 contacts exported.",
+      factsVersion: 5,
+      moduleVersion: "x",
+    },
+  });
+
+  it("Q14: the lawyer's DM has each fact's state, open questions, the DPO's recommendation, deadlines and three actions", () => {
+    const s = snap(NUVOLA);
+    s.facts.encrypted = { ...s.facts.encrypted, state: "confirmed", confirmedBy: "Hugo Leroy" };
+    s.facts.keys_safe = { value: null, state: "proposed", method: "llm", sources: [] };
+    const dm = dmFor("lawyer", s, { decisions: [rec("notify")] })!;
+    expect(dm.text).toContain("encrypted: No — confirmed by Hugo Leroy");
+    expect(dm.text).toContain("processing_role: controller — proposed by the AI, not confirmed");
+    expect(dm.text).toContain("keys_safe: unknown — unknown");
+    expect(dm.text).toContain("*Open questions*\n• ");
+    expect(dm.text).toContain("subjects_categories (asked to business owner)");
+    expect(dm.text).toContain("*DPO recommendations*\n• Notify the data protection authority (CNIL): *notify*, by Claire Martin");
+    expect(dm.text).toContain("2,400 contacts exported");
+    expect(dm.text).toContain("72h authority deadline");
+    expect(dm.text).toContain("without undue delay");
+    expect(dm.text).toContain("Your decision is needed");
+    expect(actionsOf(dm, "sign")).toEqual([
+      "sign_decision:gdpr.notify_authority",
+      "sign_decision:gdpr.inform_subjects",
+      "sign_decision:gdpr.notify_controller",
+      "lawyer_ask",
+      "lawyer_request_facts",
+    ]);
+    expect(dm.questionIds).toEqual([]); // the lawyer holds no fact: never asked the other roles' questions
+  });
+
+  it("Q7: within 12 h of the deadline, still undetermined or deferred, the DPO and the lawyer see the phased notification line", () => {
+    const deferred = { decisions: [rec("defer")] };
+    const early = new Date("2026-10-06T20:00:00+02:00"); // deadline 2026-10-07 09:12 Paris: 13 h before
+    const late = new Date("2026-10-06T22:00:00+02:00"); // 11 h before
+    for (const role of ["dpo", "lawyer"] as const) {
+      expect(dmFor(role, snap(NUVOLA), { ...deferred, now: early })!.text, role).not.toContain("phased notification");
+      expect(dmFor(role, snap(NUVOLA), { ...deferred, now: late })!.text, role).toContain("phased notification (Art. 33(4))");
+      // a signed decision to notify settles it; "required" without deferral does not trigger it
+      expect(dmFor(role, snap(NUVOLA), { decisions: [rec("defer"), rec("notify", "decision")], now: late })!.text).not.toContain("phased notification");
+      // facts still to confirm near the deadline also call for a phased notification (rules 1.0.0: unknown = yes)
+      expect(dmFor(role, snap(NUVOLA), { now: late })!.text).toContain("phased notification");
+    }
+    expect(dmFor("dpo", snap({ ...NUVOLA, personal_data: null }), { now: late })!.text).toContain("phased notification");
+    expect(dmFor("it", snap(NUVOLA), { ...deferred, now: late })!.text).not.toContain("phased");
+  });
+
+  it("Q12: the reporter only gets the acknowledgement, never the outcome", () => {
+    const dm = dmFor("reporter", snap(NUVOLA), { decisions: [rec("notify"), rec("notify", "decision")] })!;
+    expect(dm.text).toContain("your report was received");
+    expect(dm.all).not.toMatch(/notify|CNIL|required|decision|Art\./i);
+    expect(allActionIds(dm)).toEqual([]);
   });
 
   it("property: no DM ever contains another role's questions, nor (outside DPO/lawyer) another role's facts", () => {

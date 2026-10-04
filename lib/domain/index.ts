@@ -39,6 +39,10 @@ export const fact = <T extends z.ZodType>(value: T) =>
     sources: z.array(FactSource),
     confirmedBy: z.string().optional(),
     confirmedAt: z.iso.datetime({ offset: true }).optional(),
+    // Q13 "I don't know": the value and state stay as they were (an AI proposal stays "proposed"); who and when are kept.
+    // The GDPR fact reader treats a fact carrying dontKnowBy as unknown (lib/regulations/gdpr/index.ts).
+    dontKnowBy: z.string().optional(),
+    dontKnowAt: z.iso.datetime({ offset: true }).optional(),
   });
 const AnyFact = fact(z.unknown());
 export type Fact<T> = Omit<z.infer<typeof AnyFact>, "value"> & { value: T | null };
@@ -141,10 +145,25 @@ export const IncidentEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("awareness"), by: Person, at: z.iso.datetime({ offset: true }), previousAt: z.iso.datetime({ offset: true }).nullable() }),
   z.object({
     type: z.literal("decision"),
+    // Q9: the DPO records a recommendation, the lawyer signs the decision. Absent = a decision recorded before #48.
+    stage: z.enum(["recommendation", "decision"]).optional(),
     by: Person,
     obligationId: z.string(),
-    choice: z.enum(["notify", "do_not_notify"]),
-    reasons: z.string(),
+    choice: z.enum(["notify", "do_not_notify", "defer"]), // defer = waiting for facts (Q7)
+    reasons: z.string(), // readable rendering of `structured`, as shown in the register
+    // Q10 structured reasons (absent before #48).
+    structured: z
+      .object({
+        factsReliedOn: z.array(z.string()),
+        riskFactors: z.string(),
+        exceptionRelied: z.string().optional(),
+        evidence: z.string().optional(),
+        delayReason: z.string().optional(),
+        freeText: z.string().optional(),
+      })
+      .optional(),
+    override: z.boolean().optional(), // Q7: do not notify while the result is not "not required on confirmed facts"
+    flag: z.string().optional(), // Q8: notify against "not required" (flagged, never blocked)
     factsVersion: z.int().positive(),
     moduleVersion: z.string(),
   }),

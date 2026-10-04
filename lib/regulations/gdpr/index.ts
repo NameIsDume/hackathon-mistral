@@ -13,16 +13,17 @@ type Facts = IncidentSnapshot["facts"];
 // Fact reading
 // ---------------------------------------------------------------------------
 
-// A fact is known only when proposed or confirmed with a non-null value. Disputed counts as unknown.
+// A fact is known only when proposed or confirmed with a non-null value. Disputed counts as unknown,
+// and so does a fact someone answered "I don't know" to (Q13: the AI value is kept for the record only).
 function known(facts: Facts, key: GdprFactKey): unknown {
   const f = facts[key];
-  if (!f || f.state === "disputed" || f.value === null || f.value === undefined) return undefined;
+  if (!f || f.state === "disputed" || f.dontKnowBy || f.value === null || f.value === undefined) return undefined;
   return f.value;
 }
 
 function isConfirmed(facts: Facts, key: GdprFactKey): boolean {
   const f = facts[key];
-  return !!f && f.state === "confirmed" && f.value !== null && f.value !== undefined;
+  return !!f && f.state === "confirmed" && !f.dontKnowBy && f.value !== null && f.value !== undefined;
 }
 
 // Known value equals `expected` AND the fact is confirmed.

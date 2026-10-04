@@ -86,8 +86,9 @@ export function decisions(events: EventRow[], stage = "decision"): DecisionRow[]
 const latestDecision = (events: EventRow[], obligationId: string) => decisions(events).findLast((d) => d.obligationId === obligationId);
 const reasonsText = (r: unknown): string =>
   typeof r === "string" ? r : r && typeof r === "object" ? Object.values(r).flat().filter(Boolean).map(String).join(" ") : "";
+const CHOICE_LABEL: Record<string, string> = { notify: "Notify", do_not_notify: "Do not notify", defer: "Defer pending facts" };
 const describeDecision = (d: DecisionRow) =>
-  `${d.choice === "notify" ? "Notify" : "Do not notify"}. Reasons: ${reasonsText(d.reasons)} Decided by ${d.by.name} (${d.by.role}) on ${when(d.at)}${d.factsVersion ? `, facts version ${d.factsVersion}` : ""}.`;
+  `${CHOICE_LABEL[d.choice] ?? d.choice}. Reasons: ${reasonsText(d.reasons)} Decided by ${d.by.name} (${d.by.role}) on ${when(d.at)}${d.factsVersion ? `, facts version ${d.factsVersion}` : ""}.`;
 
 type DraftEvent = Extract<IncidentEvent, { type: "draft" }>;
 const drafts = (events: EventRow[]) => events.flatMap((e) => (e.event.type === "draft" ? [{ at: e.at, ...e.event }] : [])) as (DraftEvent & { at: string })[];
@@ -262,7 +263,7 @@ export function breachRegister(snapshot: IncidentSnapshot, assessment: Assessmen
     ? describeSent(state.sent)
     : notNotifying
       ? "Not notified: decision not to notify (reasons below)"
-      : `${notifyDecision ? "Decision to notify" : "No decision yet"}; transmission not recorded`;
+      : `${notifyDecision?.choice === "notify" ? "Decision to notify" : notifyDecision?.choice === "defer" ? "Decision deferred pending facts" : "No decision yet"}; transmission not recorded`;
 
   const timeline: Field[] = [given("First signal", when(snapshot.firstSignalAt))];
   for (const { at, event: e } of events) {
