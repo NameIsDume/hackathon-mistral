@@ -35,7 +35,9 @@ const UNKNOWN = "Someone left a USB stick with payroll data on the train.";
 const nulls = {
   personal_data: null, breach_type: null, data_categories: null, subjects_count: null, subjects_categories: null,
   encrypted: null, keys_safe: null, still_exposed: null, malicious: null, measures_taken: null, processing_role: null,
-  cross_border: null,
+  cross_border: null, records_count: null, encryption_state_of_art: null, encryption_covers_copies: null, backup_exists: null,
+  data_left_control: null, copies_recovered: null, availability_restored: null, contract_mandate: null,
+  can_contact_individually: null, people_affected: null, records_exists: null, safe_channel: null,
 };
 const f = (value: unknown = null, excerpt: string | null = null) => ({ value, excerpt });
 const extractJson = (facts: Record<string, unknown>) =>
