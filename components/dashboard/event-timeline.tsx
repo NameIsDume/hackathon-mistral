@@ -1,37 +1,40 @@
 import { BookText } from "lucide-react";
-import { timeParis, type EventRow } from "@/lib/dashboard/view";
-import { SEVERITY_LABEL } from "@/lib/dashboard/view";
+import { obligationLabel } from "@/lib/dashboard/clocks-view";
+import { factLabel } from "@/lib/dashboard/tasks";
+import { ANSWER_LABEL, SEVERITY_LABEL, timeParis, type EventRow } from "@/lib/dashboard/view";
+
+const CHOICE_LABEL = { notify: "notify", do_not_notify: "do not notify", defer: "wait for facts" } as const;
 
 // One human line per event — this column doubles as the breach register (Art. 33(5)):
 // who knew what, when. Append-only, read straight from incident_events.
 function line(e: EventRow): { label: string; detail: string } {
   switch (e.type) {
     case "signal":
-      return { label: "Signal reçu", detail: e.excerpt };
+      return { label: "Signal received", detail: e.excerpt };
     case "classification":
-      return { label: e.isIncident ? "Classé comme incident" : "Écarté", detail: e.reason };
+      return { label: e.isIncident ? "Classified as an incident" : "Dismissed", detail: e.reason };
     case "extraction":
       return {
-        label: e.status === "ok" ? "Faits extraits" : "Extraction indisponible",
-        detail: e.brief ?? `${e.factKeys.length} fait(s) proposé(s)`,
+        label: e.status === "ok" ? "Facts extracted" : "Extraction unavailable",
+        detail: e.brief ?? `${e.factKeys.length} fact(s) proposed`,
       };
     case "notification":
       return { label: `DM → ${e.to.name}`, detail: e.preview };
     case "answer":
-      return { label: "Réponse", detail: `${e.factKey} : ${e.answer} (${e.by.name})` };
+      return { label: "Answer", detail: `${factLabel(e.factKey)} ${ANSWER_LABEL[e.answer]} (${e.by.name})` };
     case "severity_confirmed":
-      return { label: "Gravité confirmée", detail: `${SEVERITY_LABEL[e.value]} par ${e.by.name}` };
+      return { label: "Severity confirmed", detail: `${SEVERITY_LABEL[e.value]}, by ${e.by.name}` };
     case "awareness":
-      return { label: "Prise de connaissance", detail: `confirmée par ${e.by.name} — départ du délai de 72 h` };
+      return { label: "Awareness time", detail: `confirmed by ${e.by.name}; the 72 h clock starts here` };
     case "decision":
       return {
-        label: "Décision",
-        detail: `${e.choice === "notify" ? "Notifier" : "Ne pas notifier"} — ${e.reasons}`,
+        label: `${e.stage === "recommendation" ? "Recommendation" : "Decision"}: ${obligationLabel(e.obligationId)}`,
+        detail: `${CHOICE_LABEL[e.choice]} (${e.by.name}). ${e.reasons}`,
       };
     case "draft":
-      return { label: "Brouillon", detail: `${e.document} (${e.status})` };
+      return { label: "Document", detail: `${e.document.replaceAll("_", " ")}: ${e.status.replaceAll("_", " ")}` };
     default:
-      return { label: "Événement", detail: "" };
+      return { label: "Event", detail: "" };
   }
 }
 
@@ -42,8 +45,8 @@ export function EventTimeline({ events }: { events: EventRow[] }) {
     <section className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <BookText className="size-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Journal de l&apos;incident</h2>
-        <span className="text-xs text-muted-foreground">· registre Art. 33(5)</span>
+        <h2 className="text-sm font-semibold">Incident log</h2>
+        <span className="text-xs text-muted-foreground">· register, GDPR Art. 33(5)</span>
       </div>
 
       <ol className="relative flex flex-col gap-5 border-l border-border pl-6">

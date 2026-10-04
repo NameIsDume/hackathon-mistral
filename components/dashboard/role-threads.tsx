@@ -11,6 +11,7 @@ import {
   timeParis,
   type EventRow,
 } from "@/lib/dashboard/view";
+import { factLabel } from "@/lib/dashboard/tasks";
 import { cn } from "@/lib/utils";
 
 function Avatar({ role, name }: { role: keyof typeof ROLE_ACCENT; name: string }) {
@@ -31,8 +32,8 @@ export function RoleThreads({ events }: { events: EventRow[] }) {
     <section className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <MessageSquare className="size-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Messages Slack par rôle</h2>
-        <span className="text-xs text-muted-foreground">· DM ciblés et réponses</span>
+        <h2 className="text-sm font-semibold">Slack messages per role</h2>
+        <span className="text-xs text-muted-foreground">· targeted DMs and answers</span>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -56,7 +57,7 @@ export function RoleThreads({ events }: { events: EventRow[] }) {
                     </span>
                     {!n.delivered && (
                       <span className="rounded-full bg-destructive/12 px-2 py-0.5 text-[11px] font-medium text-destructive">
-                        non délivré
+                        not delivered
                       </span>
                     )}
                     <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{timeParis(n.at)}</span>
@@ -71,9 +72,7 @@ export function RoleThreads({ events }: { events: EventRow[] }) {
                   <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", ANSWER_TONE[a.answer])}>
                     {ANSWER_LABEL[a.answer]}
                   </span>
-                  <span className="text-sm text-foreground">
-                    <span className="font-mono text-xs text-muted-foreground">{a.factKey}</span>
-                  </span>
+                  <span className="min-w-0 truncate text-sm text-foreground">{factLabel(a.factKey)}</span>
                   <span className="text-[11px] text-muted-foreground">via {a.via === "slack" ? "Slack" : "web"}</span>
                   <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{timeParis(a.at)}</span>
                 </li>

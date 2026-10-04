@@ -2,13 +2,20 @@
 
 import { Activity, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { formatParis } from "@/lib/clocks";
-import { dueItems, formatHMS, formatDHM } from "@/lib/dashboard/clocks-view";
+import { deadline } from "@/lib/clocks";
+import {
+  dueItems,
+  elapsedRatio,
+  formatDHM,
+  formatHMS,
+  obligationLabel,
+  OBLIGATION_SUB,
+  STATUS_LABEL,
+} from "@/lib/dashboard/clocks-view";
 import type { ScenarioTrack } from "@/lib/dashboard/mock";
-import { SEVERITY_LABEL, SEVERITY_TONE } from "@/lib/dashboard/view";
+import { dateParis, SEVERITY_LABEL, SEVERITY_TONE } from "@/lib/dashboard/view";
 import type { Obligation, Severity } from "@/lib/domain";
 import { cn } from "@/lib/utils";
-import { DeadlineTimeline } from "./deadline-timeline";
 
 type Timeline = { firstSignalAt: string; awarenessAt: string | null };
 
@@ -24,55 +31,73 @@ type Props = {
   onOpenJournal: () => void;
 };
 
+type Row = { id: string; label: string; sub?: string; value: string; tone: "normal" | "late" | "muted" };
+
+// Only required / undetermined obligations ask something of us; the others are listed muted with their status.
+const ACTIVE = new Set<Obligation["status"]>(["required", "undetermined"]);
+
+// One row per obligation (and demo track): remaining time, "without undue delay", "ongoing" or its status.
+function rows(obligations: Obligation[], tracks: ScenarioTrack[], timeline: Timeline, now: number): Row[] {
+  const out: Row[] = obligations.map((o) => {
+    const base = { id: o.id, label: obligationLabel(o.id), sub: OBLIGATION_SUB[o.id] };
+    if (!ACTIVE.has(o.status)) return { ...base, value: STATUS_LABEL[o.status].toLowerCase(), tone: "muted" };
+    if (!o.deadline) return { ...base, value: "ongoing", tone: "normal" };
+    const c = deadline(o.deadline, timeline, new Date(now));
+    if (!("remainingMs" in c)) return { ...base, value: "without undue delay", tone: "normal" };
+    return { ...base, value: formatDHM(c.remainingMs), tone: c.overdue ? "late" : "normal" };
+  });
+  for (const t of tracks) {
+    const remaining = t.dueAt ? Date.parse(t.dueAt) - now : null;
+    out.push({ id: t.id, label: t.label, sub: t.basis, value: remaining === null ? "no deadline" : formatDHM(remaining), tone: remaining !== null && remaining <= 0 ? "late" : "normal" });
+  }
+  // Countdowns first, then "without undue delay", "ongoing", and the muted ones last.
+  const rank = (r: Row) => (r.tone === "muted" ? 3 : r.value === "ongoing" ? 2 : r.value === "without undue delay" ? 1 : 0);
+  return out.sort((a, b) => rank(a) - rank(b));
+}
+
 // Crisis-cell identifier: a date·time stamp, in Europe/Paris, from detection.
 const crisisId = (iso: string) => {
   const d = new Date(iso);
-  const date = new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-  const time = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" }).format(d);
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" }).format(d);
   return `#${date} · ${time}`;
 };
 
-export function Hero({
-  title,
-  brief,
-  severity,
-  live,
-  obligations,
-  tracks,
-  timeline,
-  now,
-  onOpenJournal,
-}: Props) {
-  const items = dueItems(obligations, timeline, tracks, now);
-  const primary = items[0];
-  const rest = items.slice(1);
+export function Hero({ title, brief, severity, live, obligations, tracks, timeline, now, onOpenJournal }: Props) {
+  // The nearest hard deadline among obligations that still ask something of us.
+  const primary = dueItems(
+    obligations.filter((o) => ACTIVE.has(o.status)),
+    timeline,
+    tracks,
+    now,
+  )[0];
+  const list = rows(obligations, tracks, timeline, now);
 
   return (
-    <section className="flex flex-col gap-7">
-      {/* Blended header — no card, sits on the page ground. */}
+    <section className="flex flex-col gap-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="relative flex size-2">
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/60" />
               <span className="relative inline-flex size-2 rounded-full bg-primary" />
             </span>
-            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Cellule de crise · active</span>
-            <Badge className={cn("ml-1", SEVERITY_TONE[severity])}>Sévérité {SEVERITY_LABEL[severity].toLowerCase()}</Badge>
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Crisis cell · active</span>
+            <Badge className={cn("ml-1", SEVERITY_TONE[severity])}>Severity: {SEVERITY_LABEL[severity]}</Badge>
             <span
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-                live ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300" : "bg-muted text-muted-foreground",
+                live ? "bg-emerald-500/12 text-emerald-300" : "bg-muted text-muted-foreground",
               )}
             >
               <Activity className="size-3.5" />
-              {live ? "Temps réel" : "Démo"}
+              {live ? "Live" : "Demo"}
             </span>
           </div>
 
           <span className="font-mono text-sm tracking-wide text-muted-foreground tabular-nums">{crisisId(timeline.firstSignalAt)}</span>
-          <h1 className="max-w-4xl text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl">{title}</h1>
-          <p className="max-w-3xl truncate text-sm text-muted-foreground">{brief}</p>
+          <h1 className="font-serif text-5xl font-semibold leading-[1.05] tracking-tight text-primary sm:text-6xl lg:text-7xl">{title}</h1>
+          <p className="max-w-[70ch] text-base leading-relaxed text-foreground/85">{brief}</p>
         </div>
 
         <button
@@ -80,46 +105,63 @@ export function Hero({
           onClick={onOpenJournal}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-sm font-medium transition-colors hover:bg-accent"
         >
-          Journal de l&apos;incident
+          Incident log
           <ArrowRight className="size-4" />
         </button>
       </div>
 
-      {/* Timer + deadline list, in one subtle panel. */}
-      {primary && (
-        <div className="grid gap-6 rounded-xl border border-border bg-card p-6 ring-1 ring-foreground/5 lg:grid-cols-[1.1fr_1px_minmax(16rem,22rem)]">
-          <div className="flex flex-col gap-3">
-            <p className="text-xs font-medium text-muted-foreground">Temps restant · Alerte précoce (NIS2 · CSIRT)</p>
-            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-              <span className={cn("font-mono text-6xl font-semibold tracking-tight tabular-nums", primary.overdue ? "text-destructive" : "text-foreground")}>
-                {formatHMS(primary.remainingMs)}
+      {/* Nearest hard deadline (left) and every obligation deadline (right), in one panel. */}
+      <div className="grid gap-6 rounded-xl border border-border bg-card p-6 lg:grid-cols-[1.1fr_1px_1fr] lg:gap-8">
+        <div className="flex min-w-0 flex-col gap-3">
+          {primary ? (
+            <>
+              <p className="text-xs font-medium text-muted-foreground">
+                Time left · {primary.label}
+                {primary.sub && ` (${primary.sub})`}
+              </p>
+              <span className={cn("font-mono text-6xl font-semibold tracking-tight tabular-nums sm:text-7xl", primary.overdue ? "text-destructive" : "text-primary")}>
+                {primary.overdue ? "overdue" : formatHMS(primary.remainingMs)}
               </span>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                échéance {formatParis(new Date(primary.dueMs).toISOString())}
+              <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                due {dateParis(new Date(primary.dueMs).toISOString())}
+                {primary.provisional && " · provisional (awareness not confirmed)"}
               </span>
-            </div>
-            <div className="mt-3">
-              <DeadlineTimeline items={items} firstSignalAt={timeline.firstSignalAt} now={now} />
-            </div>
-          </div>
-
-          <div className="hidden bg-border lg:block" />
-
-          <ul className="flex flex-col justify-center divide-y divide-border">
-            {rest.map((d) => (
-              <li key={d.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                <span className="min-w-0 text-sm">
-                  <span className="font-medium">{d.label}</span>
-                  {d.sub && <span className="text-muted-foreground"> · {d.sub}</span>}
-                </span>
-                <span className={cn("shrink-0 text-sm font-semibold tabular-nums", d.overdue ? "text-destructive" : "text-foreground")}>
-                  {formatDHM(d.remainingMs)}
-                </span>
-              </li>
-            ))}
-          </ul>
+              <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary"
+                  style={{ width: `${Math.round(elapsedRatio(primary.dueMs, primary.windowHours, now) * 100)}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs font-medium text-muted-foreground">Time left</p>
+              <p className="font-serif text-2xl">No hard legal deadline is running.</p>
+            </>
+          )}
         </div>
-      )}
+
+        <div className="hidden bg-border lg:block" />
+
+        <ul className="flex flex-col justify-center divide-y divide-border">
+          {list.map((r) => (
+            <li key={r.id} className="flex items-baseline justify-between gap-4 py-3 first:pt-0 last:pb-0">
+              <span className={cn("min-w-0 text-sm", r.tone === "muted" && "text-muted-foreground")}>
+                <span className="font-medium">{r.label}</span>
+                {r.sub && <span className="text-xs text-muted-foreground"> · {r.sub}</span>}
+              </span>
+              <span
+                className={cn(
+                  "shrink-0 text-right font-mono text-sm tabular-nums",
+                  r.tone === "late" ? "text-destructive" : r.tone === "muted" ? "text-muted-foreground" : "text-foreground",
+                )}
+              >
+                {r.value}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </section>
   );
 }

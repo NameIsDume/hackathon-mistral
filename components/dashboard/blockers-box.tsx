@@ -26,14 +26,14 @@ export function BlockersBox({
     <Card className="gap-4 p-5">
       <div className="flex items-center gap-2">
         <TriangleAlert className="size-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Points de blocage</h2>
+        <h2 className="text-sm font-semibold">Blockers</h2>
         {items.length > 0 && <span className="ml-auto text-xs font-medium text-amber-600 dark:text-amber-400">{items.length}</span>}
       </div>
 
       {items.length === 0 ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <CircleCheckBig className="size-4 text-emerald-500" />
-          Rien ne bloque pour l&apos;instant.
+          Nothing is blocking right now.
         </p>
       ) : (
         <ul className="flex flex-col gap-3">

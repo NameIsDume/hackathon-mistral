@@ -2,9 +2,11 @@
 
 import { Clock, Gavel, Landmark, Users } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { deadline, formatParis } from "@/lib/clocks";
+import { deadline } from "@/lib/clocks";
 import { elapsedRatio, formatRemaining, obligationLabel, STATUS_LABEL, STATUS_TONE } from "@/lib/dashboard/clocks-view";
 import type { ScenarioTrack } from "@/lib/dashboard/mock";
+import { factLabel } from "@/lib/dashboard/tasks";
+import { dateParis } from "@/lib/dashboard/view";
 import type { Obligation } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
@@ -46,7 +48,7 @@ function ClockCard({ obligation, timeline, now }: { obligation: Obligation; time
             <span className={cn("text-2xl font-semibold tabular-nums", overdue ? "text-destructive" : "text-foreground")}>
               {formatRemaining(clock.remainingMs)}
             </span>
-            {!overdue && <span className="text-xs text-muted-foreground">restantes</span>}
+            {!overdue && <span className="text-xs text-muted-foreground">left</span>}
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div
@@ -55,19 +57,19 @@ function ClockCard({ obligation, timeline, now }: { obligation: Obligation; time
             />
           </div>
           <p className="text-xs text-muted-foreground tabular-nums">
-            échéance {formatParis(clock.dueAt!)}
-            {provisional && " · provisoire"}
+            due {dateParis(clock.dueAt!)}
+            {provisional && " · provisional"}
           </p>
         </div>
       ) : d ? (
-        <p className="mt-2 text-sm text-muted-foreground">Sans délai indu · pas de compte à rebours</p>
+        <p className="mt-2 text-sm text-muted-foreground">Without undue delay · no countdown</p>
       ) : (
-        <p className="mt-2 text-sm text-muted-foreground">En continu tout au long de l&apos;incident</p>
+        <p className="mt-2 text-sm text-muted-foreground">Ongoing for the whole incident</p>
       )}
 
       {obligation.factsToConfirm.length > 0 && (
         <p className="mt-3 border-t border-border pt-3 text-xs text-amber-600 dark:text-amber-400">
-          Faits à confirmer : {obligation.factsToConfirm.join(", ")}
+          Facts to confirm: {obligation.factsToConfirm.map(factLabel).join(" · ")}
         </p>
       )}
     </Card>
@@ -113,8 +115,8 @@ export function ObligationClocks({ obligations, timeline, tracks, now }: Props) 
     <section className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <Clock className="size-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">Obligations &amp; horloges</h2>
-        <span className="text-xs text-muted-foreground">· moteur RGPD, faits confirmés</span>
+        <h2 className="text-sm font-semibold">Obligations &amp; clocks</h2>
+        <span className="text-xs text-muted-foreground">· GDPR engine, confirmed facts</span>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -126,7 +128,7 @@ export function ObligationClocks({ obligations, timeline, tracks, now }: Props) 
       {tracks.length > 0 && (
         <div className="mt-1 flex flex-col gap-3">
           <p className="text-xs font-medium text-muted-foreground">
-            Autres échéances juridiques — hors moteur RGPD (assureur, plainte, rançon)
+            Other legal deadlines, outside the GDPR engine (insurer, police complaint, ransom)
           </p>
           <div className="grid gap-3 sm:grid-cols-3">
             {tracks.map((t) => (
