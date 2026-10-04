@@ -164,9 +164,10 @@ describe("memo in Slack", () => {
     const [msg] = memoPosts();
     expect(memoPosts()).toHaveLength(1);
     expect(msg.channel).toBe("D9");
-    expect(msg.blocks[0]).toMatchObject({ type: "header", text: { text: MEMO_TITLE } });
+    expect(msg.blocks[0]).toMatchObject({ type: "header", text: { text: "Why the app suggests this" } });
     expect(JSON.stringify(msg.blocks)).toContain("memo_regenerate");
-    expect(JSON.stringify(msg.blocks)).toContain("EDPB para 119");
+    expect(JSON.stringify(msg.blocks)).not.toMatch(/para \d|Art\. \d/); // plain words on the phone, sources counted
+    expect(JSON.stringify(msg.blocks)).toContain("Should we report this to the CNIL?");
     expect(memoEvents()).toHaveLength(1);
     expect(memoEvents()[0].event).toMatchObject({ type: "notification", kind: "assessment", to: { role: "lawyer", slackUserId: "U_LAW" }, delivered: true, slack: { channel: "D9", ts: "9.9" } });
     expect(memoEvents()[0].event.preview).toContain("Facts v5, rules gdpr 1.0.0");

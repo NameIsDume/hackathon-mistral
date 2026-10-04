@@ -246,7 +246,7 @@ describe("POST /api/slack/interactions", () => {
     expect(blockIds(open.view)).toEqual(["choice", "factsReliedOn", "riskFactors", "exceptionRelied", "evidence", "freeText", "override"]);
     const choice = open.view.blocks.find((b: { block_id?: string }) => b.block_id === "choice");
     expect(choice.element.options.map((o: { value: string }) => o.value)).toEqual(["notify", "do_not_notify", "defer"]);
-    expect(choice.element.options[2].text.text).toBe("Defer pending facts (72 h deadline: 69 h 12 min left)");
+    expect(choice.element.options[2].text.text).toBe("Wait for more facts (CNIL deadline: 69 h 12 min left)");
   });
 
   it("no override checkbox when the result is not required on confirmed facts", async () => {
@@ -267,8 +267,8 @@ describe("POST /api/slack/interactions", () => {
     ]);
     await post(signButton("U_LAW", "decision"));
     const [open] = bodies("views.open");
-    expect(open.view.title.text).toBe("Sign the decision");
-    expect(open.view.blocks[0].text.text).toContain("DPO recommendation: *defer* by Claire Martin\n> Waiting for keys_safe.");
+    expect(open.view.title.text).toBe("Your decision");
+    expect(open.view.blocks[0].text.text).toContain("Claire Martin (DPO) recommends: *wait for more facts*\n> Waiting for keys_safe.");
   });
 
   it("Q9: only the DPO records a recommendation, only the lawyer signs the decision: modal error, no write", async () => {
@@ -285,9 +285,9 @@ describe("POST /api/slack/interactions", () => {
 
   it("Q10: a missing structured reason comes back on its own field", async () => {
     const res = await post(decision("U_DPO", "recommendation", null));
-    expect(await res.json()).toMatchObject({ response_action: "errors", errors: { riskFactors: expect.stringContaining("risk factors") } });
+    expect(await res.json()).toMatchObject({ response_action: "errors", errors: { riskFactors: expect.stringContaining("what could go wrong") } });
     const dnn = await post(decision("U_DPO", "recommendation", "Contacts exported.", "do_not_notify"));
-    expect(await dnn.json()).toMatchObject({ response_action: "errors", errors: { override: expect.stringContaining("override") } });
+    expect(await dnn.json()).toMatchObject({ response_action: "errors", errors: { override: expect.stringContaining("Going against the app") } });
     expect(m.recordEvent).not.toHaveBeenCalled();
   });
 

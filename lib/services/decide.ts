@@ -95,15 +95,15 @@ export function checkReasons(choice: Choice, r: Reasons, { flagged = false, over
   if (choice === "defer") {
     if (blank(r.freeText)) throw new DecisionRefused("Say which facts you are waiting for.", "freeText");
   } else {
-    if (!r.factsReliedOn.length) throw new DecisionRefused("Select the facts relied on.", "factsReliedOn");
-    if (blank(r.riskFactors)) throw new DecisionRefused("Describe the risk factors considered.", "riskFactors");
+    if (!r.factsReliedOn.length) throw new DecisionRefused("Pick the facts that matter most.", "factsReliedOn");
+    if (blank(r.riskFactors)) throw new DecisionRefused("Say what could go wrong for the people affected.", "riskFactors");
   }
   if (choice === "do_not_notify") {
-    if (blank(r.exceptionRelied)) throw new DecisionRefused("Name the exception relied on (e.g. Art. 33(1) risk unlikely, Art. 34(3)(a) encrypted).", "exceptionRelied");
-    if (blank(r.evidence)) throw new DecisionRefused("Give the evidence for the exception.", "evidence");
+    if (blank(r.exceptionRelied)) throw new DecisionRefused("Say why it is safe not to go ahead (for example: the files were encrypted and the key is safe).", "exceptionRelied");
+    if (blank(r.evidence)) throw new DecisionRefused("Say how we know it is safe (for example: IT checked the encryption).", "evidence");
   }
-  if ((choice === "do_not_notify" || flagged) && blank(r.freeText)) throw new DecisionRefused("Explain the decision in your own words.", "freeText");
-  if (overdue && blank(r.delayReason)) throw new DecisionRefused("The 72 h deadline has passed: give the reasons for the delay (Art. 33(1)).", "delayReason");
+  if ((choice === "do_not_notify" || flagged) && blank(r.freeText)) throw new DecisionRefused("Explain your choice in a few words.", "freeText");
+  if (overdue && blank(r.delayReason)) throw new DecisionRefused("The 72-hour deadline has passed: say why this is late.", "delayReason");
 }
 
 function check(input: DecideInput, snapshot: IncidentSnapshot) {
@@ -116,7 +116,7 @@ function check(input: DecideInput, snapshot: IncidentSnapshot) {
   const override = input.choice === "do_not_notify" && needsOverride(o);
   if (override && !input.overrideRecommendation)
     throw new DecisionRefused(
-      `The computed status is "${o.status.replaceAll("_", " ")}"${o.factsToConfirm.length ? " with facts to confirm" : ""}, not "not required on confirmed facts": tick the override to decide not to notify.`,
+      "The app does not say this is safe to skip. To say no anyway, tick \"Going against the app\".",
       "override",
     );
   const flag = flagFor(o, input.choice);

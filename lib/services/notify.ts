@@ -64,6 +64,25 @@ const SHORT_LABEL: Record<(typeof DECIDABLE_OBLIGATIONS)[number], string> = {
 const SITE = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "hackathon-mistral.vercel.app"}`;
 export const reportUrl = (incidentId: string) => `${SITE}/incidents/${incidentId}`;
 
+// Plain words for what the lawyer and the DPO read (Martyna: no technical terms for the person who signs).
+export const PLAIN: Record<(typeof DECIDABLE_OBLIGATIONS)[number], { question: string; yes: string; no: string }> = {
+  "gdpr.notify_authority": { question: "Should we report this to the CNIL?", yes: "Yes, report it", no: "No, don't report it" },
+  "gdpr.inform_subjects": { question: "Should we tell the people affected?", yes: "Yes, tell them", no: "No, don't tell them" },
+  "gdpr.notify_controller": { question: "Should we tell our client?", yes: "Yes, tell the client", no: "No, don't tell the client" },
+};
+export const PLAIN_STATUS: Record<string, string> = {
+  required: "yes, this needs to be done",
+  not_required: "not needed, based on confirmed facts",
+  undetermined: "your call: the facts don't settle it",
+  controller_duty: "this is the client's job",
+  controller_decides: "the client decides",
+};
+export const PLAIN_CHOICE: Record<string, string> = { notify: "go ahead", do_not_notify: "don't go ahead", defer: "wait for more facts" };
+// The rules cite their sources ("Q5:", "(para 119)"); the person signing does not need them.
+export const plainReason = (r: string) => {
+  const t = r.replace(/^Q\d+:\s*/, "").replace(/\s*\((?:para|paras|Art\.)[^)]*\)/g, "");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
 // Obligations someone here signs. As processor (#47) the CNIL and the people concerned are the client's call, and as
 // controller there is no client to inform: no button, no "decision needed" for those.
 const ours = (assessment: Assessment) =>
@@ -126,7 +145,7 @@ const OBLIGATION_SHORT: Record<string, string> = {
   "gdpr.notify_authority": "CNIL notification",
   "gdpr.inform_subjects": "Informing the people concerned",
 };
-export const factLabel = (key: string) => key.charAt(0).toUpperCase() + key.slice(1).replaceAll("_", " ");
+export const factLabel = (key: string) => GDPR_FACTS[key as GdprFactKey]?.label ?? key.charAt(0).toUpperCase() + key.slice(1).replaceAll("_", " ");
 const shortState = (f: Fact<unknown>) =>
   (f.state === "disputed" ? "marked wrong" : f.value === null ? "unknown" : f.state === "confirmed" ? "confirmed" : "to confirm") + (f.dontKnowBy ? ", I don't know" : "");
 const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
@@ -243,6 +262,12 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
       })
     : [];
   if (questions.length) lines.push(`*${questions.length === 1 ? "One question" : `${questions.length} questions`} for you*`);
+  else if (rule.questions && role !== "dpo") {
+    // Nothing left to ask (answers given, "I don't know" is never re-asked): say so, and how to add or change something.
+    const done = "*Nothing more needed from you for now.* Learned something new or want to change an answer? Just reply here in your own words.";
+    lines.push(done);
+    controls.push(section(done));
+  }
   for (const q of questions) {
     const f = snapshot.facts[q.factKey];
     const value = (v: object) => JSON.stringify({ incidentId: id, factKey: q.factKey, ...v });
