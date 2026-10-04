@@ -6,7 +6,7 @@ import { Role, Severity, type Fact } from "@/lib/domain";
 import { GDPR_FACTS, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
 import { evaluate } from "@/lib/regulations/gdpr";
 import { db, listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
-import { ANSWER_LABEL, context, openDm, openView, option, plain, postDm, section, sections, updateMessage, type Block } from "@/lib/adapters/slack";
+import { ANSWER_LABEL, button, context, openDm, openView, option, plain, postDm, section, sections, updateMessage, type Block } from "@/lib/adapters/slack";
 import { buildDm, type DmContext, factLabel, formatLeft, PLAIN, PLAIN_CHOICE, PLAIN_STATUS, plainReason, isBooleanFact, notifyWave, OBLIGATION_LABEL, recordWithRetry, showValue } from "@/lib/services/notify";
 import { confirmSeverity, InvalidAwareness, setAwareness } from "@/lib/services/review";
 import { decide, DECIDABLE_OBLIGATIONS, decisionStatus, DecisionRefused, flagFor, needsOverride, SIGNERS, type Stage } from "@/lib/services/decide";
@@ -74,6 +74,8 @@ const Where = { channel: z.string(), ts: z.string() };
 const FactMeta = InputValue.extend(Where);
 const SignMeta = SignValue.extend(Where);
 const CaseMeta = CaseValue.extend(Where);
+const ReplyValue = CaseValue.extend({ q: z.string() }); // the lawyer's question, to quote it back
+const ReplyMeta = ReplyValue.extend(Where);
 const json = (s: string | undefined) => JSON.parse(s ?? "");
 
 export type Outcome = { body?: object; later?: () => Promise<void> };
@@ -364,6 +366,11 @@ async function onAction(p: BlockActions): Promise<Outcome> {
     };
   }
 
+  if (a.action_id === "dpo_reply") {
+    await openView(z.string().parse(p.trigger_id), replyModal({ ...ReplyValue.parse(json(a.value)), ...where }));
+    return {};
+  }
+
   if (a.action_id === "fact_input" || a.action_id.startsWith("sign_decision:") || a.action_id === "lawyer_ask" || a.action_id === "lawyer_request_facts") {
     // views.open needs the trigger_id within 3 s: done now, before the ack. Roles are checked on submit.
     const view =
@@ -450,6 +457,7 @@ async function onSubmit(p: ViewSubmission): Promise<Outcome> {
 
   if (p.view.callback_id === "sign_decision") return onDecisionSubmit(p);
   if (p.view.callback_id === "lawyer_ask" || p.view.callback_id === "lawyer_request_facts") return onLawyerSubmit(p);
+  if (p.view.callback_id === "dpo_reply") return onDpoReply(p);
 
   throw new z.ZodError([{ code: "custom", message: `unknown view ${p.view.callback_id}`, path: ["view", "callback_id"], input: p.view.callback_id }]);
 }
@@ -543,7 +551,8 @@ async function onLawyerSubmit(p: ViewSubmission): Promise<Outcome> {
         let err: string | undefined;
         try {
           if (!dpo.slack_user_id) throw new Error("no slack_user_id for this person");
-          slack = await postDm(await openDm(dpo.slack_user_id), [section(msg)], msg);
+          const reply = button(`Reply to ${by.name.split(" ")[0]}`, "dpo_reply", JSON.stringify({ incidentId: meta.incidentId, q: question.slice(0, 1500) }), "primary");
+          slack = await postDm(await openDm(dpo.slack_user_id), [section(msg), { type: "actions", elements: [reply] }], msg);
         } catch (e) {
           err = e instanceof Error ? e.message : String(e);
         }
@@ -563,6 +572,64 @@ async function onLawyerSubmit(p: ViewSubmission): Promise<Outcome> {
         });
       }
       await refreshDms(meta.incidentId, "Question sent to the DPO", own);
+    },
+  };
+}
+
+// The DPO answers the lawyer's follow-up question: the answer goes to every lawyer's DM (recorded as a notification,
+// actor = the DPO) and the question message shows it was answered.
+function replyModal(meta: z.infer<typeof ReplyMeta>): Block {
+  return {
+    type: "modal",
+    callback_id: "dpo_reply",
+    private_metadata: JSON.stringify(meta),
+    title: plain("Reply", 24),
+    submit: plain("Send", 24),
+    close: plain("Cancel", 24),
+    blocks: [
+      section(`> ${meta.q.replaceAll("\n", "\n> ")}`),
+      { type: "input", block_id: "value", label: plain("Your answer", 2000), element: { type: "plain_text_input", multiline: true, max_length: 3000, action_id: "value" } },
+    ],
+  };
+}
+
+async function onDpoReply(p: ViewSubmission): Promise<Outcome> {
+  const meta = ReplyMeta.parse(json(p.view.private_metadata));
+  const answer = p.view.state.values.value?.value?.value?.trim();
+  if (!answer) return errors("value", "Write your answer.");
+  const by = await personWithRole(p.user.id, SIGNERS.recommendation);
+  if (!by) return errors("value", "Only the DPO can answer here: nothing was sent.");
+  return {
+    later: async () => {
+      const { data, error } = await db().from("people").select("name, slack_user_id").eq("role", SIGNERS.decision);
+      if (error) throw new Error(error.message);
+      const msg = `*Reply from ${by.name} (DPO):*\n${answer}`;
+      const quote = `_Your question:_ ${meta.q}`;
+      for (const lawyer of data as { name: string; slack_user_id: string | null }[]) {
+        let slack: { channel: string; ts: string } | null = null;
+        let err: string | undefined;
+        try {
+          if (!lawyer.slack_user_id) throw new Error("no slack_user_id for this person");
+          slack = await postDm(await openDm(lawyer.slack_user_id), [section(msg), context(quote)], msg);
+        } catch (e) {
+          err = e instanceof Error ? e.message : String(e);
+        }
+        await recordWithRetry(meta.incidentId, (await loadSnapshot(meta.incidentId)).version, {
+          actor: `slack:${p.user.id}`,
+          idempotencyKey: `slack:${p.view.id}:${lawyer.slack_user_id ?? lawyer.name}`,
+          event: {
+            type: "notification",
+            to: { role: SIGNERS.decision, name: lawyer.name, ...(lawyer.slack_user_id && { slackUserId: lawyer.slack_user_id }) },
+            kind: "decision",
+            questionIds: [],
+            preview: msg,
+            slack,
+            delivered: !!slack,
+            ...(err && { error: err }),
+          },
+        });
+      }
+      await updateMessage(meta.channel, meta.ts, [section(`*Follow-up question:*\n${meta.q}`), context(`Answered: ${answer.slice(0, 280)}`)], `Answered: ${answer}`);
     },
   };
 }

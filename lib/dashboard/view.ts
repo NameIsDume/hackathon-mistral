@@ -52,9 +52,18 @@ export const NOTIFICATION_KIND_LABEL: Record<
   decision: "Decision",
 };
 
+// The lawyer's follow-up question to the DPO and the DPO's reply (lib/services/slack-actions.ts), read from the message.
+const ASKED = /^\*Follow-up question from (.+?) \(lawyer\):\*\n/;
+const REPLIED = /^\*Reply from (.+?) \(DPO\):\*\n/;
+export const followUp = (n: Extract<EventRow, { type: "notification" }>) => {
+  const a = n.preview.match(ASKED) ?? n.preview.match(REPLIED);
+  return a ? { kind: ASKED.test(n.preview) ? ("question" as const) : ("reply" as const), from: a[1], text: n.preview.slice(a[0].length) } : null;
+};
+
 // What a Slack message was about, in a few words: never the raw message (Slack markup, fact keys).
 export const notificationDetail = (n: Extract<EventRow, { type: "notification" }>) =>
-  n.preview.startsWith("Reasoning memo")
+  followUp(n)?.text ??
+  (n.preview.startsWith("Reasoning memo")
     ? "Why the app suggests what it does (AI memo)"
     : ({
         brief: "Told that an incident was reported",
@@ -62,7 +71,7 @@ export const notificationDetail = (n: Extract<EventRow, { type: "notification" }
         assessment: "Case summary and what the app suggests",
         management_note: "Short note for management",
         decision: "Asked to decide",
-      } as const)[n.kind];
+      } as const)[n.kind]);
 
 export const ANSWER_LABEL: Record<Extract<IncidentEvent, { type: "answer" }>["answer"], string> = {
   yes: "Yes",
