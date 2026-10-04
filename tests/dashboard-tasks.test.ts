@@ -64,3 +64,19 @@ it("puts whoever ran /incident first, as the reporter, with the report done", ()
   const [first] = deriveColumns(events, [], { value: null, state: "proposed", method: "llm", sources: [] }, {});
   expect(first).toMatchObject({ role: "reporter", name: "Wael Ben Slima", done: 1, total: 1 });
 });
+
+it("a lawyer's follow-up question: the DPO has to answer it, the lawyer waits (orange) until the reply", () => {
+  const sev = { value: null, state: "proposed", method: "llm", sources: [] } as never;
+  const n = (id: number, at: string, to: { role: string; name: string }, preview: string) =>
+    ({ id, at, actor: "x", type: "notification", to, kind: "decision", questionIds: [], preview, slack: null, delivered: true }) as never;
+  const ask = n(1, "2026-10-04T15:12:00Z", { role: "dpo", name: "Cécile von Roenne" }, "*Follow-up question from Martyna Sieczka (lawyer):*\nWhat data?");
+  const law = n(0, "2026-10-04T15:00:00Z", { role: "lawyer", name: "Martyna Sieczka" }, "case");
+  const task = (cols: ReturnType<typeof deriveColumns>, role: string) => cols.find((c) => c.role === role)!.tasks.find((t) => /question|answer/.test(t.title))!;
+  let cols = deriveColumns([law, ask], [], sev, {});
+  expect(task(cols, "dpo")).toMatchObject({ title: "Answer Martyna's question", status: "todo" });
+  expect(task(cols, "lawyer")).toMatchObject({ title: "Waiting for Cécile's answer", status: "pending_validation" });
+  const reply = n(2, "2026-10-04T15:20:00Z", { role: "lawyer", name: "Martyna Sieczka" }, "*Reply from Cécile von Roenne (DPO):*\nContact details.");
+  cols = deriveColumns([law, ask, reply], [], sev, {});
+  expect(task(cols, "dpo").status).toBe("done");
+  expect(task(cols, "lawyer").status).toBe("done");
+});
