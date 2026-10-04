@@ -187,6 +187,17 @@ export const GDPR_FACTS = {
 
 export type GdprFactKey = keyof typeof GDPR_FACTS;
 
+// Plain words for people (Martyna: never "personal_data" or "Q5" on screen).
+export const factText = (key: string) => (GDPR_FACTS as Record<string, FactDef>)[key]?.label ?? key.replaceAll("_", " ");
+// Multi-word keys only: one-word keys ("encrypted", "malicious") already read as words.
+const KEYS = new RegExp(`\\b(${Object.keys(GDPR_FACTS).filter((k) => k.includes("_")).sort((a, b) => b.length - a.length).join("|")})\\b`, "g");
+export const plainFacts = (t: string) => t.replace(KEYS, (k) => factText(k).toLowerCase());
+// The rules cite their sources ("Q5:", "(para 119)", "(Art. 34)"); the person reading does not need them.
+export const plainReason = (r: string) => {
+  const t = plainFacts(r.replace(/^Q\d+:\s*/, "").replace(/\s*\((?:para|paras|Art\.)[^)]*\)/g, ""));
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
+
 // Flat values object for LLM extraction: every fact optional-unknown (null).
 export const GdprFactValues = z.object(
   Object.fromEntries(Object.entries(GDPR_FACTS).map(([k, d]) => [k, d.value.nullable()])) as {

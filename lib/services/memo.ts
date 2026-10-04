@@ -9,11 +9,12 @@ import { z } from "zod";
 import type { Assessment, IncidentSnapshot, ObligationStatus, Role } from "@/lib/domain";
 import { callMistral, GUARD } from "@/lib/adapters/mistral";
 import { db, listEvents, loadSnapshot } from "@/lib/adapters/supabase";
-import { button, context, divider, header, openDm, postDm, section, updateMessage, type Block } from "@/lib/adapters/slack";
+import { button, context, divider, fields, header, openDm, plain, postDm, section, updateMessage, type Block } from "@/lib/adapters/slack";
+import { deadline, formatParis } from "@/lib/clocks";
 import { evaluate } from "@/lib/regulations/gdpr";
-import { GDPR_FACTS } from "@/lib/regulations/gdpr/facts";
+import { factText, GDPR_FACTS } from "@/lib/regulations/gdpr/facts";
 import { decisionStatus, type DecisionStatus } from "@/lib/services/decide";
-import { CHIP, factLabel, OBLIGATION_LABEL, PLAIN, plainReason, recordWithRetry } from "@/lib/services/notify";
+import { plainReason, recordWithRetry, reportUrl } from "@/lib/services/notify";
 import type { Outcome } from "@/lib/services/slack-actions";
 
 export const MEMO_TITLE = "Reasoning memo (AI, for review)";
@@ -166,34 +167,151 @@ export async function buildMemo(
 // Slack
 // ---------------------------------------------------------------------------
 
-// Phone first (the demo is shown on a phone): one short card per decision, plain words, no legal references.
-const QUESTION: Record<string, string> = { ...Object.fromEntries(Object.entries(PLAIN).map(([k, v]) => [k, v.question])), "gdpr.record_breach": "Should we log it in our breach register?" };
-const short = (t: string, n = 160) => {
+// Phone first (the demo is shown on a phone): at a glance (one coloured dot per obligation, the CNIL deadline in each
+// reader's time zone), what happened (confirmed facts, two columns), then one short card per obligation. Plain words.
+const DOT: Record<string, string> = { required: "🔴", undetermined: "🟠", not_required: "🟢", controller_duty: "⚪", controller_decides: "⚪" };
+const GLANCE: Record<string, string> = {
+  required: "required",
+  undetermined: "your call",
+  not_required: "not needed",
+  controller_duty: "the client's job",
+  controller_decides: "the client decides",
+};
+const TRACK: Record<string, string> = {
+  "gdpr.notify_authority": "Report to the CNIL",
+  "gdpr.record_breach": "Log in our breach register",
+  "gdpr.inform_subjects": "Tell the people affected",
+  "gdpr.notify_controller": "Tell a client",
+};
+const ORDER = ["gdpr.notify_authority", "gdpr.record_breach", "gdpr.inform_subjects", "gdpr.notify_controller"];
+const DATA: Record<string, string> = {
+  contact: "contact details",
+  financial: "bank or payment data",
+  id_document: "ID documents",
+  credentials: "logins and passwords",
+  special_category: "sensitive data (health…)",
+  other: "other data",
+};
+const SENSITIVE = ["financial", "id_document", "credentials", "special_category"];
+const short = (t: string, n = 170) => {
   const p = plainReason(t);
   return p.length > n ? `${p.slice(0, n - 1)}…` : p;
 };
 
-export function memoMessage(incidentId: string, memo: Memo, assessment: Assessment): { blocks: Block[]; text: string } {
-  const status = new Map(assessment.obligations.map((o) => [o.id, o.status]));
+function whatHappened(snapshot: IncidentSnapshot): string[] {
+  const v = (k: string) => snapshot.facts[k]?.value;
+  const yesNo = (k: string, no = "No", yes = "Yes") => (v(k) === true ? yes : v(k) === false ? no : "Unknown");
+  const cats = (v("data_categories") as string[] | null | undefined) ?? null;
+  const count = (v("records_count") ?? v("subjects_count")) as number | null | undefined;
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  return [
+    `*Data*\n${cats ? cap(cats.map((c) => DATA[c] ?? c).join(", ")) : "Unknown"}`,
+    `*Volume*\n${typeof count === "number" ? `${count.toLocaleString("en-GB")} records` : "Unknown"}`,
+    `*Cause*\n${yesNo("malicious", "A mistake", "Deliberate attack")}`,
+    `*Our role*\n${v("processing_role") === "controller" ? "Our own data (controller)" : v("processing_role") === "processor" ? "A client's data (processor)" : "Unknown"}`,
+    `*Encrypted?*\n${yesNo("encrypted")}`,
+    `*Copies retrieved?*\n${yesNo("copies_recovered", "No, still out there")}`,
+    `*Backup?*\n${yesNo("backup_exists")}`,
+    `*Sensitive data?*\n${cats ? cats.filter((c) => SENSITIVE.includes(c)).map((c) => DATA[c]).join(", ") || "None" : "Unknown"}`,
+  ];
+}
+
+// Built from confirmed facts and the rules' own factors, not from the model: a demo must not swap "for" and "against".
+type Ob = Assessment["obligations"][number];
+const is = (snapshot: IncidentSnapshot, k: string, v: unknown) => {
+  const f = snapshot.facts[k];
+  return f?.state === "confirmed" && f.value === v;
+};
+function why(o: Ob, snapshot: IncidentSnapshot): string | null {
+  if (o.id === "gdpr.record_breach" && o.status === "required") return "every breach involving personal data must be recorded, whatever its size.";
+  if (o.id === "gdpr.notify_controller")
+    return o.status === "not_required"
+      ? "we control this data ourselves; there is no client to alert."
+      : o.status === "required"
+        ? "we handle this data for a client: they must be told without delay, whatever the risk."
+        : null;
+  if (o.id === "gdpr.notify_authority" && o.status === "required") {
+    const facts = [
+      is(snapshot, "encrypted", false) && "the data was not encrypted",
+      is(snapshot, "data_left_control", true) && "it left our control",
+      is(snapshot, "copies_recovered", false) && "we could not get it back",
+    ].filter(Boolean);
+    return facts.length ? `${facts.join(", ")}, so a risk to people can't be ruled out.` : "nothing yet shows the risk is unlikely, so we notify to be safe.";
+  }
+  if (o.status === "controller_duty" || o.status === "controller_decides") return "this is our client's data: the client decides, we give them the facts.";
+  return null;
+}
+function pointsFor(o: Ob, rec: DecisionStatus | undefined): string[] {
+  const factors = o.reasons.find((r) => r.startsWith("Aggravating factors to weigh:"))?.replace(/^Aggravating factors to weigh: |\.$/g, "").split("; ") ?? [];
+  return [rec?.decision.choice === "notify" ? "DPO recommends it" : null, ...factors.map((f) => f.replace(/ \(malicious actor\)$/, ""))].filter((x): x is string => !!x);
+}
+function pointsAgainst(snapshot: IncidentSnapshot): string[] {
+  const cats = snapshot.facts.data_categories;
+  const subjects = snapshot.facts.subjects_categories;
+  return [
+    cats?.state === "confirmed" && Array.isArray(cats.value) && !cats.value.some((c) => SENSITIVE.includes(c)) && "no sensitive data involved",
+    is(snapshot, "people_affected", false) && "no harm reported so far",
+    subjects?.state === "confirmed" && Array.isArray(subjects.value) && !subjects.value.includes("minors") && "no children involved",
+  ].filter((x): x is string => !!x);
+}
+
+export function memoMessage(
+  incidentId: string,
+  memo: Memo,
+  assessment: Assessment,
+  snapshot: IncidentSnapshot,
+  decisions: DecisionStatus[] = [],
+  now = new Date(),
+): { blocks: Block[]; text: string } {
   const versions = `Facts v${assessment.factsVersion}, rules gdpr ${assessment.moduleVersion}`;
   const sources = memo.obligations.reduce((n, o) => n + o.citations.length, 0);
-  const cards = memo.obligations.flatMap((o) => {
-    const lines = [
-      o.strengths[0] && `👍 ${short(o.strengths[0])}`,
-      o.weaknesses[0] && `👎 ${short(o.weaknesses[0])}`,
-      o.missingFacts.length && `❓ Still missing: ${o.missingFacts.map((k) => factLabel(k).toLowerCase()).join(", ")}`,
-    ].filter(Boolean);
-    const st = status.get(o.obligationId);
-    return [divider, section(`*${QUESTION[o.obligationId] ?? OBLIGATION_LABEL[o.obligationId] ?? o.obligationId}*   ${st ? (CHIP[st] ?? st) : ""}\n${lines.join("\n")}`)];
+  const obligations = ORDER.flatMap((id) => assessment.obligations.filter((o) => o.id === id));
+  const ai = new Map(memo.obligations.map((o) => [o.obligationId, o]));
+  const rec = (id: string) => decisions.find((d) => d.obligationId === id && d.stage === "recommendation");
+
+  const glance = obligations.map((o) => {
+    const extra = o.id === "gdpr.notify_authority" && o.status === "required" ? ", within 72h" : "";
+    return `${DOT[o.status] ?? "⚪"} *${TRACK[o.id] ?? o.id}* — ${GLANCE[o.status] ?? o.status}${extra}`;
   });
+  const authority = assessment.obligations.find((o) => o.id === "gdpr.notify_authority");
+  const clock = authority?.deadline && deadline(authority.deadline, snapshot, now);
+  const due = clock && clock.dueAt && authority.status !== "not_required" && !authority.status.startsWith("controller")
+    ? `⏱ *CNIL deadline:* <!date^${Math.floor(Date.parse(clock.dueAt) / 1000)}^{date_short_pretty}, {time}|${formatParis(clock.dueAt)} Paris> (your time zone)`
+    : null;
+
+  const cards = obligations.flatMap((o) => {
+    const m = ai.get(o.id);
+    const missing = [...new Set([...o.factsToConfirm, ...(m?.missingFacts ?? [])])];
+    const missingText = missing.slice(0, 3).map((k) => factText(k).toLowerCase()).join(" · ");
+    const lines =
+      o.status === "undetermined"
+        ? [
+            `*Points to telling them:* ${pointsFor(o, rec(o.id)).join(" · ") || "none established yet"}`,
+            `*Points against:* ${pointsAgainst(snapshot).join(" · ") || "none established yet"}`,
+            missingText && `*Would help decide:* ${missingText}`,
+          ]
+        : [`*Why:* ${why(o, snapshot) ?? short(m?.strengths[0] ?? o.reasons[0] ?? "")}`, missingText && `*Still needed:* ${missingText}`];
+    return [divider, section(`${DOT[o.status] ?? "⚪"} *${TRACK[o.id] ?? o.id}*  _${o.legalRefs[0] ?? ""}_\n${lines.filter(Boolean).join("\n")}`)];
+  });
+
   const blocks: Block[] = [
-    header("Why the app suggests this"),
-    context("Written by AI to help you decide. It does not decide for you."),
-    ...(memo.summary.length ? [section(memo.summary.slice(0, 2).map((t) => short(t, 240)).join(" "))] : []),
+    header("⚠️ Data breach — what we need to do"),
+    context(`Drafted by AI to help you decide — it does not decide for you · Checked against GDPR${sources ? ` and ${sources} passage${sources === 1 ? "" : "s"} of the lawyers' decisions` : ""}`),
+    section(`*At a glance*\n${glance.join("\n")}`),
+    ...(due ? [context(due)] : []),
+    divider,
+    section("*What happened*"),
+    fields(whatHappened(snapshot)),
     ...cards,
     divider,
-    context(`Checked against the rules${sources ? ` and ${sources} passage${sources === 1 ? "" : "s"} of the lawyers' decisions` : ""}.`),
-    { type: "actions", elements: [button("Regenerate", MEMO_ACTION, JSON.stringify({ incidentId }))] },
+    {
+      type: "actions",
+      elements: [
+        button("Add missing info", "lawyer_request_facts", JSON.stringify({ incidentId, fromMemo: true })),
+        button("Regenerate", MEMO_ACTION, JSON.stringify({ incidentId })),
+        { type: "button", action_id: "open_report", text: plain("Live report"), url: reportUrl(incidentId) },
+      ],
+    },
   ];
   return { blocks: blocks.slice(0, 50), text: `${MEMO_TITLE}, ${versions}: ${memo.summary.join(" ")}` };
 }
@@ -208,7 +326,7 @@ export async function postLawyerMemo(incidentId: string, regenerate?: Target): P
     const assessment = evaluate(snapshot);
     const memo = await buildMemo(snapshot, assessment, decisionStatus(events));
     if (!memo) return console.warn(`memo: nothing to post for ${incidentId}`);
-    const { blocks, text } = memoMessage(incidentId, memo, assessment);
+    const { blocks, text } = memoMessage(incidentId, memo, assessment, snapshot, decisionStatus(events));
     let lawyers: Person[] = regenerate ? [regenerate.person] : [];
     if (!regenerate) {
       const { data, error } = await db().from("people").select("name, slack_user_id").eq("role", "lawyer");

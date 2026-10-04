@@ -3,7 +3,7 @@
 // handleInteraction runs the part Slack waits for (views.open, modal validation) and returns the rest as `later`.
 import { z } from "zod";
 import { Role, Severity, type Fact } from "@/lib/domain";
-import { GDPR_FACTS, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
+import { GDPR_FACTS, plainFacts, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
 import { evaluate } from "@/lib/regulations/gdpr";
 import { db, listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
 import { ANSWER_LABEL, button, context, openDm, openView, option, plain, postDm, section, sections, updateMessage, type Block } from "@/lib/adapters/slack";
@@ -230,7 +230,7 @@ async function decisionModal(meta: z.infer<typeof SignMeta>): Promise<Block> {
     clock?.dueAt && `CNIL deadline: ${formatParis(clock.dueAt)} (${left})`,
     meta.stage === "decision" &&
       (rec
-        ? `${rec.decision.by.name} (DPO) recommends: *${PLAIN_CHOICE[rec.decision.choice] ?? rec.decision.choice}*\n> ${rec.decision.reasons.slice(0, 800).replaceAll("\n", "\n> ")}`
+        ? `${rec.decision.by.name} (DPO) recommends: *${PLAIN_CHOICE[rec.decision.choice] ?? rec.decision.choice}*\n> ${plainFacts(rec.decision.reasons).slice(0, 800).replaceAll("\n", "\n> ")}`
         : "The DPO has not given a recommendation yet."),
     flag && "_The app says this is not needed. You can still go ahead: just say why below._",
     meta.stage === "decision" ? "_Your decision and your reasons are saved in the incident file._" : "_This is your advice. The lawyer makes the final call._",
@@ -275,11 +275,13 @@ async function decisionModal(meta: z.infer<typeof SignMeta>): Promise<Block> {
 }
 
 // Q14: the lawyer's follow-up question to the DPO, and the lawyer's request for more facts.
+const ROLE_WORD: Partial<Record<Role, string>> = { it: "IT", business_owner: "business owner", dpo: "DPO", lawyer: "lawyer" };
+
 function lawyerModal(callbackId: "lawyer_ask" | "lawyer_request_facts", meta: z.infer<typeof CaseMeta>): Block {
   const element =
     callbackId === "lawyer_ask"
       ? { type: "plain_text_input", multiline: true, max_length: 3000 }
-      : { type: "multi_static_select", options: Object.entries(GDPR_FACTS).map(([k, d]) => option(k, `${k} (${d.role.replace("_", " ")})`)) };
+      : { type: "multi_static_select", options: Object.entries(GDPR_FACTS).map(([k, d]) => option(k, `${factLabel(k)} (${ROLE_WORD[d.role] ?? d.role})`)) };
   return {
     type: "modal",
     callback_id: callbackId,
@@ -366,6 +368,8 @@ async function onAction(p: BlockActions): Promise<Outcome> {
     };
   }
 
+  if (a.action_id === "open_report") return {}; // a link button (memo): Slack still posts the click, nothing to do
+
   if (a.action_id === "dpo_reply") {
     await openView(z.string().parse(p.trigger_id), replyModal({ ...ReplyValue.parse(json(a.value)), ...where }));
     return {};
@@ -377,7 +381,8 @@ async function onAction(p: BlockActions): Promise<Outcome> {
       a.action_id === "fact_input"
         ? factModal({ ...InputValue.parse(json(a.value)), ...where })
         : a.action_id === "lawyer_ask" || a.action_id === "lawyer_request_facts"
-          ? lawyerModal(a.action_id, { ...CaseValue.parse(json(a.value)), ...where })
+          ? // From the memo: no case DM to refresh in place (refreshing it would overwrite the memo).
+            lawyerModal(a.action_id, { ...CaseValue.parse(json(a.value)), ...(json(a.value).fromMemo ? { channel: "", ts: "" } : where) })
           : await decisionModal({ ...SignValue.parse(json(a.value)), ...where });
     await openView(z.string().parse(p.trigger_id), view);
     return {};
@@ -524,7 +529,7 @@ async function onLawyerSubmit(p: ViewSubmission): Promise<Outcome> {
   const by = await personWithRole(p.user.id, SIGNERS.decision);
   if (!by) return errors("value", "Only the lawyer can do this: nothing was recorded.");
   const actor = `slack:${p.user.id}`;
-  const own = { role: by.role, channel: meta.channel, ts: meta.ts };
+  const own = meta.ts ? { role: by.role, channel: meta.channel, ts: meta.ts } : undefined;
 
   if (p.view.callback_id === "lawyer_request_facts") {
     const keys = (s?.selected_options ?? []).map((o) => o.value).filter((k) => k in GDPR_FACTS);

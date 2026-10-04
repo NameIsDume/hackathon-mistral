@@ -268,7 +268,7 @@ describe("POST /api/slack/interactions", () => {
     await post(signButton("U_LAW", "decision"));
     const [open] = bodies("views.open");
     expect(open.view.title.text).toBe("Your decision");
-    expect(open.view.blocks[0].text.text).toContain("Claire Martin (DPO) recommends: *wait for more facts*\n> Waiting for keys_safe.");
+    expect(open.view.blocks[0].text.text).toContain("Claire Martin (DPO) recommends: *wait for more facts*\n> Waiting for password or key still safe.");
   });
 
   it("Q9: only the DPO records a recommendation, only the lawyer signs the decision: modal error, no write", async () => {

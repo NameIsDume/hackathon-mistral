@@ -2,7 +2,7 @@
 import { z } from "zod";
 import { Severity, type Assessment, type Fact, type IncidentEvent, type IncidentSnapshot, type Role } from "@/lib/domain";
 import { evaluate } from "@/lib/regulations/gdpr";
-import { GDPR_FACTS, GDPR_QUESTIONS, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
+import { factText, GDPR_FACTS, GDPR_QUESTIONS, plainFacts, plainReason, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
 import { db, listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
 import { button, context, divider, fields, header, openDm, option, plain, postDm, questionBlocks, section, type Block } from "@/lib/adapters/slack";
 import { DECIDABLE_OBLIGATIONS, decisionStatus, SIGNERS, type DecisionStatus, type Stage } from "@/lib/services/decide";
@@ -86,10 +86,7 @@ export const PLAIN_STATUS: Record<string, string> = {
 };
 export const PLAIN_CHOICE: Record<string, string> = { notify: "go ahead", do_not_notify: "don't go ahead", defer: "wait for more facts" };
 // The rules cite their sources ("Q5:", "(para 119)"); the person signing does not need them.
-export const plainReason = (r: string) => {
-  const t = r.replace(/^Q\d+:\s*/, "").replace(/\s*\((?:para|paras|Art\.)[^)]*\)/g, "");
-  return t.charAt(0).toUpperCase() + t.slice(1);
-};
+export { plainReason } from "@/lib/regulations/gdpr/facts";
 // Obligations someone here signs. As processor (#47) the CNIL and the people concerned are the client's call, and as
 // controller there is no client to inform: no button, no "decision needed" for those.
 const ours = (assessment: Assessment) =>
@@ -123,7 +120,7 @@ const describeDecision = (d: DecisionStatus) =>
   `• ${OBLIGATION_LABEL[d.obligationId] ?? d.obligationId}: *${d.decision.choice.replaceAll("_", " ")}*, by ${d.decision.by.name}` +
   (d.status === "to_re_evaluate" ? " (*to re-evaluate*: facts changed since)" : "") +
   (d.decision.flag ? `\n  _${d.decision.flag}_` : "") +
-  (d.stage === "recommendation" ? `\n  > ${d.decision.reasons.slice(0, 500).replaceAll("\n", "\n  > ")}` : "");
+  (d.stage === "recommendation" ? `\n  > ${plainFacts(d.decision.reasons).slice(0, 500).replaceAll("\n", "\n  > ")}` : "");
 
 export const showValue = (v: unknown) =>
   v === null || v === undefined ? "unknown" : typeof v === "boolean" ? (v ? "Yes" : "No") : Array.isArray(v) ? v.join(", ") : String(v);
@@ -152,7 +149,7 @@ const OBLIGATION_SHORT: Record<string, string> = {
   "gdpr.notify_authority": "CNIL notification",
   "gdpr.inform_subjects": "Informing the people concerned",
 };
-export const factLabel = (key: string) => GDPR_FACTS[key as GdprFactKey]?.label ?? key.charAt(0).toUpperCase() + key.slice(1).replaceAll("_", " ");
+export const factLabel = factText;
 const shortState = (f: Fact<unknown>) =>
   (f.state === "disputed" ? "marked wrong" : f.value === null ? "unknown" : f.state === "confirmed" ? "confirmed" : "to confirm") + (f.dontKnowBy ? ", I don't know" : "");
 const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
@@ -195,7 +192,7 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
     const entries = Object.entries(snapshot.facts);
     const rows = entries.map(([k, f]) => {
       const src = f.sources.map((s) => `"${s.excerpt}"`).join("; ");
-      return `• ${k}: ${showValue(f.value)} — ${factState(f)}${src ? ` — ${src}` : ""}`;
+      return `• ${factLabel(k)}: ${showValue(f.value)} — ${factState(f)}${src ? ` — ${src}` : ""}`;
     });
     detail(`*Facts*\n${rows.join("\n") || "none yet"}`);
     const cells = entries.map(([k, f]) => `*${factLabel(k)}*\n${clip(showValue(f.value), 80)} · ${shortState(f)}`);
@@ -211,8 +208,8 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
   if (rule.assessment === "full")
     for (const o of assessment.obligations) {
       detail(
-        `*${OBLIGATION_LABEL[o.id] ?? o.id}*: ${o.status} (${o.legalRefs.join(", ")})\n${o.reasons.join("\n")}` +
-          (o.factsToConfirm.length ? `\nFacts to confirm: ${o.factsToConfirm.join(", ")}` : ""),
+        `*${OBLIGATION_LABEL[o.id] ?? o.id}*: ${PLAIN_STATUS[o.status] ?? o.status} (${o.legalRefs.join(", ")})\n${o.reasons.map(plainReason).join("\n")}` +
+          (o.factsToConfirm.length ? `\nStill to confirm: ${o.factsToConfirm.map((k) => factLabel(k).toLowerCase()).join(", ")}` : ""),
       );
       const n = o.factsToConfirm.length;
       const signed = stage

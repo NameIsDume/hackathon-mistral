@@ -111,7 +111,7 @@ describe("decide", () => {
     expect(await refusal(decide({ ...base, reasons: { ...REASONS, factsReliedOn: ["made_up"] } }))).toBe("factsReliedOn");
     const { event } = await decide(base);
     expect(event.structured).toEqual(REASONS);
-    expect(event.reasons).toContain("Facts relied on: personal_data, data_categories.");
+    expect(event.reasons).toContain("Facts relied on: personal data involved, kind of information.");
   });
 
   it("Q10: do not notify needs the exception, its evidence and free text too", async () => {
