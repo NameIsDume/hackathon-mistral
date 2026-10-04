@@ -18,7 +18,13 @@ const TITLES: Record<ObligationId, string> = {
   "gdpr.inform_subjects": "Inform the people concerned (Art. 34)",
   "gdpr.notify_controller": "Inform the controller (Art. 33(2))",
 };
-const STATUS_LABEL = { required: "Required", not_required: "Not required", undetermined: "Undetermined" } as const;
+const STATUS_LABEL = {
+  required: "Required",
+  not_required: "Not required",
+  undetermined: "Undetermined",
+  controller_duty: "Controller's duty",
+  controller_decides: "Controller decides",
+} as const;
 const MIN_REASONS = 20; // mirrors MIN_REASONS_LENGTH in lib/services/decide.ts (server-only module)
 
 export function DecisionForm({

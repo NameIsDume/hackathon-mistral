@@ -22,8 +22,15 @@ const dmFor = (role: Role, s = snap(NUVOLA)) => {
 describe("role scoping (Nuvola, severity average)", () => {
   it("IT gets its own questions with buttons and no legal reasoning", () => {
     const dm = dmFor("it")!;
-    expect(dm.questionIds.sort()).toEqual(["gdpr.breach_type", "gdpr.encrypted", "gdpr.keys_safe", "gdpr.personal_data", "gdpr.still_exposed"]);
-    expect(dm.blocks.filter((b) => b.type === "actions").map((b) => b.block_id)).toEqual(expect.arrayContaining(["encrypted", "keys_safe"]));
+    expect(dm.questionIds.sort()).toEqual([
+      "gdpr.breach_type",
+      "gdpr.data_left_control",
+      "gdpr.encrypted",
+      "gdpr.malicious",
+      "gdpr.personal_data",
+      "gdpr.still_exposed",
+    ]);
+    expect(dm.blocks.filter((b) => b.type === "actions").map((b) => b.block_id)).toEqual(expect.arrayContaining(["encrypted", "still_exposed"]));
     const a = evaluate(snap(NUVOLA));
     for (const o of a.obligations) for (const s of [...o.reasons, ...o.legalRefs, o.id]) expect(dm.all).not.toContain(s);
     expect(dm.all).not.toMatch(/GDPR|Art\.|required|CNIL|deadline/i);
@@ -33,17 +40,17 @@ describe("role scoping (Nuvola, severity average)", () => {
     const dm = dmFor("it")!;
     expect(actionsOf(dm, "encrypted")).toEqual(["fact_confirm", "fact_wrong"]);
     expect(actionsOf(dm, "breach_type")).toEqual(["fact_confirm", "fact_wrong"]);
-    expect(actionsOf(dm, "keys_safe")).toEqual(["answer_yes", "answer_no", "answer_unknown"]);
+    expect(actionsOf(dm, "still_exposed")).toEqual(["answer_yes", "answer_no", "answer_unknown"]);
     expect(dm.all).toContain("The AI suggests: *No*");
     expect(dm.all).toContain("about encrypted");
   });
 
   it("a fact answered \"I don't know\" by a human is not asked again", () => {
     const s = snap(NUVOLA);
-    s.facts.keys_safe = { value: null, state: "confirmed", method: "human", sources: [], confirmedBy: "Hugo", confirmedAt: "2026-10-04T10:00:00Z" };
+    s.facts.still_exposed = { value: null, state: "confirmed", method: "human", sources: [], confirmedBy: "Hugo", confirmedAt: "2026-10-04T10:00:00Z" };
     const dm = dmFor("it", s)!;
-    expect(dm.questionIds).not.toContain("gdpr.keys_safe");
-    expect(actionsOf(dm, "keys_safe")).toEqual([]);
+    expect(dm.questionIds).not.toContain("gdpr.still_exposed");
+    expect(actionsOf(dm, "still_exposed")).toEqual([]);
   });
 
   it("non-boolean unknown or disputed facts get an Answer button", () => {
