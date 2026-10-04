@@ -1,0 +1,23 @@
+# Paste at https://api.slack.com/apps -> Create New App -> From a manifest.
+# Replace YOUR_VERCEL_URL once the Vercel project is deployed (local dev: a cloudflared tunnel URL).
+display_information:
+  name: Incichill
+  description: Incident response copilot (GDPR) - demo, fictional data only
+features:
+  bot_user:
+    display_name: Incichill
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write        # send DMs and update them after a button click
+      - im:write          # open the DM conversation with each person
+      - users:read        # resolve people from the org chart
+      - users:read.email  # match org chart e-mails to Slack user IDs
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://YOUR_VERCEL_URL/api/slack/interactions
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
