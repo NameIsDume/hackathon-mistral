@@ -78,10 +78,10 @@ export async function listEvents(incidentId: string) {
   }));
 }
 
-// Incident list for the dashboard, newest first. The brief lives in the latest extraction event (incidents.brief stays null).
+// Incident list for the dashboard, newest first, archived ones left out. The brief lives in the latest extraction event (incidents.brief stays null).
 export async function listIncidents() {
   const [inc, ext] = await Promise.all([
-    db().from("incidents").select("id, first_signal_at, facts").order("first_signal_at", { ascending: false }),
+    db().from("incidents").select("id, first_signal_at, facts").is("archived_at", null).order("first_signal_at", { ascending: false }),
     db().from("incident_events").select("incident_id, payload").eq("type", "extraction").order("id"),
   ]);
   if (inc.error) throw new Error(inc.error.message);
