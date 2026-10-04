@@ -1,5 +1,5 @@
 # Paste at https://api.slack.com/apps -> Create New App -> From a manifest.
-# Replace YOUR_VERCEL_URL once the Vercel project is deployed (local dev: a cloudflared tunnel URL).
+# Production URL below; for local dev, point it to a cloudflared tunnel temporarily.
 display_information:
   name: Incichill
   description: Incident response copilot (GDPR) - demo, fictional data only
@@ -17,7 +17,7 @@ oauth_config:
 settings:
   interactivity:
     is_enabled: true
-    request_url: https://YOUR_VERCEL_URL/api/slack/interactions
+    request_url: https://hackathon-mistral.vercel.app/api/slack/interactions
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false
