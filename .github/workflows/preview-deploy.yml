@@ -5,6 +5,7 @@ name: Preview deploy
 on:
   push:
     branches-ignore: [main]
+  workflow_dispatch:
 
 concurrency:
   group: preview-${{ github.ref }}
@@ -13,7 +14,7 @@ concurrency:
 jobs:
   deploy:
     # Pushes by the team owner already deploy through the Vercel git integration.
-    if: github.actor != 'NameIsDume'
+    if: github.event_name == 'workflow_dispatch' || github.actor != 'NameIsDume'
     runs-on: ubuntu-latest
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
