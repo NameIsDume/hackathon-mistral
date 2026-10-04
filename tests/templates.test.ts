@@ -257,12 +257,12 @@ describe("breach register (Art. 33(5))", () => {
     expect(field(doc, "Entry status", "Notification to the authority").value).toMatch(/^Not notified: decision not to notify/);
     expect(overdue(doc)).toBeUndefined();
     const timeline = doc.sections.find((x) => x.heading === "Timeline")!.fields.map((f) => f.label);
-    expect(timeline).toEqual(["First signal", expect.stringContaining("Awareness set"), expect.stringContaining("Decision on gdpr.notify_authority")]);
+    expect(timeline).toEqual(["First signal", expect.stringContaining("Awareness set"), expect.stringContaining("Decision on CNIL notification")]);
   });
 
   it("without a decision, the decision is 'to be completed' and the transmission not recorded", () => {
     const doc = reg(NUVOLA, []);
-    expect(field(doc, "Decision and reasons", "Decision: gdpr.notify_authority")).toMatchObject({ missing: true, value: MISSING });
+    expect(field(doc, "Decision and reasons", "Decision: CNIL notification")).toMatchObject({ missing: true, value: MISSING });
     expect(field(doc, "Entry status", "Notification to the authority").value).toBe("No decision yet; transmission not recorded");
   });
 
@@ -286,7 +286,7 @@ describe("breach register (Art. 33(5))", () => {
 
   it("an undetermined branch reads 'Undetermined, [fact] unconfirmed'", () => {
     const doc = reg({ personal_data: [true, "proposed"], processing_role: ["controller", "proposed"] }, []);
-    expect(field(doc, "Decision and reasons", "Recommendation: gdpr.notify_controller").value).toMatch(/^Undetermined, processing_role unconfirmed/);
+    expect(field(doc, "Decision and reasons", "Recommendation: informing the client").value).toMatch(/^Undetermined, our data or a client's unconfirmed/);
   });
 
   it("'sent' is distinct from the decision to notify; overdue after 72 h until a transmission is recorded", () => {
@@ -308,10 +308,10 @@ describe("breach register (Art. 33(5))", () => {
   it("reads #48's split: a DPO recommendation is not a decision", () => {
     const rec = { ...notifyDecision, event: { ...notifyDecision.event, stage: "recommendation" } } as unknown as EventRow;
     const doc = reg(NUVOLA, [rec]);
-    expect(field(doc, "Decision and reasons", "Decision: gdpr.notify_authority").missing).toBe(true);
-    expect(field(doc, "Decision and reasons", "DPO recommendation: gdpr.notify_authority").value).toContain("Notify");
+    expect(field(doc, "Decision and reasons", "Decision: CNIL notification").missing).toBe(true);
+    expect(field(doc, "Decision and reasons", "DPO recommendation: CNIL notification").value).toContain("Notify");
     const dec = { ...notifyDecision, event: { ...notifyDecision.event, stage: "decision", by: lawyer } } as unknown as EventRow;
-    expect(field(reg(NUVOLA, [rec, dec]), "Decision and reasons", "Decision: gdpr.notify_authority").value).toContain("Inès Haddad (lawyer)");
+    expect(field(reg(NUVOLA, [rec, dec]), "Decision and reasons", "Decision: CNIL notification").value).toContain("Inès Haddad (lawyer)");
   });
 });
 

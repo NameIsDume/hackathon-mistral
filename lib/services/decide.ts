@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import type { IncidentEvent, IncidentSnapshot, Obligation, Role } from "@/lib/domain";
 import { listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
 import { evaluate, GDPR_MODULE_VERSION } from "@/lib/regulations/gdpr";
-import { GDPR_FACTS } from "@/lib/regulations/gdpr/facts";
+import { factText, GDPR_FACTS } from "@/lib/regulations/gdpr/facts";
 import { deadline } from "@/lib/clocks";
 
 export type Stage = "recommendation" | "decision";
@@ -126,7 +126,7 @@ function check(input: DecideInput, snapshot: IncidentSnapshot) {
 
 function render(r: Reasons, override: boolean, flag?: string): string {
   return [
-    r.factsReliedOn.length && `Facts relied on: ${r.factsReliedOn.join(", ")}.`,
+    r.factsReliedOn.length && `Facts relied on: ${r.factsReliedOn.map((k) => factText(k).toLowerCase()).join(", ")}.`,
     r.riskFactors && `Risk factors: ${r.riskFactors}`,
     r.exceptionRelied && `Exception relied on: ${r.exceptionRelied}`,
     r.evidence && `Evidence: ${r.evidence}`,

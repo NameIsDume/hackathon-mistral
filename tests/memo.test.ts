@@ -164,10 +164,15 @@ describe("memo in Slack", () => {
     const [msg] = memoPosts();
     expect(memoPosts()).toHaveLength(1);
     expect(msg.channel).toBe("D9");
-    expect(msg.blocks[0]).toMatchObject({ type: "header", text: { text: "Why the app suggests this" } });
-    expect(JSON.stringify(msg.blocks)).toContain("memo_regenerate");
-    expect(JSON.stringify(msg.blocks)).not.toMatch(/para \d|Art\. \d/); // plain words on the phone, sources counted
-    expect(JSON.stringify(msg.blocks)).toContain("Should we report this to the CNIL?");
+    expect(msg.blocks[0]).toMatchObject({ type: "header", text: { text: "⚠️ Data breach — what we need to do" } });
+    const all = JSON.stringify(msg.blocks);
+    expect(all).toContain("memo_regenerate");
+    expect(all).toContain("*At a glance*");
+    expect(all).toContain("🔴 *Report to the CNIL* — required, within 72h");
+    expect(all).toContain("*What happened*");
+    // What the reader sees (every "text" string, minus Slack's date token): no "para 119", "Q5" or fact keys.
+    const seen = [...all.matchAll(/"text":"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1].replace(/<!date[^>]*>/g, "")).join(" ");
+    expect(seen).not.toMatch(/para \d|\bQ\d+\b|\b[a-z]+_[a-z_]+\b/);
     expect(memoEvents()).toHaveLength(1);
     expect(memoEvents()[0].event).toMatchObject({ type: "notification", kind: "assessment", to: { role: "lawyer", slackUserId: "U_LAW" }, delivered: true, slack: { channel: "D9", ts: "9.9" } });
     expect(memoEvents()[0].event.preview).toContain("Facts v5, rules gdpr 1.0.0");
