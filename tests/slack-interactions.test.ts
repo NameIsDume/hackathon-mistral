@@ -382,6 +382,23 @@ describe("POST /api/slack/interactions", () => {
     expect(arg.event).toMatchObject({ type: "notification", to: { role: "dpo", name: "Claire Martin" }, kind: "decision", delivered: true, preview: expect.stringContaining("Inès Haddad (lawyer)") });
   });
 
+  it("the DPO answers the lawyer's question from Slack: Reply opens a modal, the answer reaches the lawyer and is recorded", async () => {
+    const values = { value: { value: text("Were the exports opened outside the EU?") } };
+    await post(submit("U_LAW", "lawyer_ask", { incidentId: INCIDENT_ID }, values));
+    const reply = JSON.parse(JSON.stringify(bodies("chat.postMessage")[0].blocks)).flatMap((b: { elements?: { action_id: string; value: string }[] }) => b.elements ?? []).find((e: { action_id: string }) => e.action_id === "dpo_reply");
+    expect(reply).toBeTruthy();
+    m.recordEvent.mockClear();
+    await post(action("U_DPO", { action_id: "dpo_reply", value: reply.value }));
+    expect(bodies("views.open").at(-1).view.callback_id).toBe("dpo_reply");
+    const meta = { ...JSON.parse(reply.value) };
+    expect((await (await post(submit("U_IT", "dpo_reply", meta, { value: { value: text("No.") } }))).json()).response_action).toBe("errors");
+    expect((await post(submit("U_DPO", "dpo_reply", meta, { value: { value: text("No, all inside France.") } }))).status).toBe(200);
+    expect(bodies("conversations.open").at(-1).users).toBe("U_LAW");
+    expect(bodies("chat.postMessage").at(-1).text).toBe("*Reply from Claire Martin (DPO):*\nNo, all inside France.");
+    expect(m.recordEvent.mock.calls[0][0]).toMatchObject({ actor: "slack:U_DPO", event: { type: "notification", to: { role: "lawyer" }, kind: "decision" } });
+    expect(bodies("chat.update").at(-1)).toMatchObject({ channel: "D1", ts: "1.1", text: "Answered: No, all inside France." });
+  });
+
   it("Q14: Request more facts re-asks the chosen facts to their holders only, traced to the lawyer", async () => {
     await post(caseButton("lawyer_request_facts"));
     expect(bodies("views.open")[0].view.callback_id).toBe("lawyer_request_facts");

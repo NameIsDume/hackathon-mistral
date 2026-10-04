@@ -1,7 +1,7 @@
 import { BookText } from "lucide-react";
 import { obligationLabel } from "@/lib/dashboard/clocks-view";
 import { factLabel } from "@/lib/dashboard/tasks";
-import { ANSWER_LABEL, notificationDetail, SEVERITY_LABEL, timeParis, type EventRow } from "@/lib/dashboard/view";
+import { ANSWER_LABEL, followUp, notificationDetail, SEVERITY_LABEL, timeParis, type EventRow } from "@/lib/dashboard/view";
 
 const CHOICE_LABEL = { notify: "go ahead", do_not_notify: "don't go ahead", defer: "wait for more facts" } as const;
 const DOCUMENT_LABEL: Record<string, string> = { cnil_notification: "CNIL notification", breach_register: "Breach register", subjects_notice: "Notice to the people affected" };
@@ -21,7 +21,11 @@ function line(e: EventRow): { label: string; detail: string } {
         detail: e.brief ?? `${e.factKeys.length} fact(s) proposed`,
       };
     case "notification":
+    {
+      const f = followUp(e);
+      if (f) return { label: f.kind === "question" ? `${f.from} asked ${e.to.name}` : `${f.from} replied to ${e.to.name}`, detail: f.text };
       return { label: `Slack message to ${e.to.name}`, detail: notificationDetail(e) };
+    }
     case "answer":
       return { label: "Answer", detail: `${factLabel(e.factKey)} ${ANSWER_LABEL[e.answer]} (${e.by.name})` };
     case "severity_confirmed":

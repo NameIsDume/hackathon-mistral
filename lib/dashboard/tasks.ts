@@ -4,7 +4,7 @@
 // recommendation/decision they sign (DPO recommends, lawyer decides) and the documents. Pure.
 import type { Fact, Obligation, Role, Severity } from "@/lib/domain";
 import { GDPR_FACTS } from "@/lib/regulations/gdpr/facts";
-import type { EventRow } from "./view";
+import { followUp, type EventRow } from "./view";
 
 export type TaskStatus = "done" | "in_progress" | "pending_validation" | "todo" | "blocked";
 
@@ -155,6 +155,18 @@ export function deriveColumns(
         tasks.push({ id: "subjects", title: "Inform the people concerned", due: "without_undue_delay", status: docStatus("subjects_notice") });
       if (needsAction(own("gdpr.record_breach")))
         tasks.push({ id: "register", title: "Keep the breach register up to date", due: "ongoing", status: "in_progress" });
+    }
+
+    // 5. The lawyer's follow-up questions to the DPO: the DPO answers, the lawyer waits (orange) until a reply comes after.
+    const notifs = events.filter((e): e is NotifRow => e.type === "notification");
+    for (const q of notifs.filter((n) => followUp(n)?.kind === "question" && n.to.role === "dpo")) {
+      const asker = followUp(q)!.from.split(" ")[0];
+      const dpo = q.to.name.split(" ")[0];
+      const answered = notifs.some((n) => n.at > q.at && followUp(n)?.kind === "reply");
+      if (role === "dpo" && q.to.name === p.name)
+        tasks.push({ id: `reply-${q.id}`, title: `Answer ${asker}'s question`, due: "without_undue_delay", status: answered ? "done" : "todo" });
+      if (role === "lawyer" && followUp(q)!.from === p.name)
+        tasks.push({ id: `wait-${q.id}`, title: `Waiting for ${dpo}'s answer`, due: "without_undue_delay", status: answered ? "done" : "pending_validation" });
     }
 
     if (role === "reporter") tasks.push({ id: "report", title: "Reported the incident on Slack", due: 0, status: "done" });
