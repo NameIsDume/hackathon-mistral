@@ -70,6 +70,13 @@ export const PLAIN: Record<(typeof DECIDABLE_OBLIGATIONS)[number], { question: s
   "gdpr.inform_subjects": { question: "Should we tell the people affected?", yes: "Yes, tell them", no: "No, don't tell them" },
   "gdpr.notify_controller": { question: "Should we tell our client?", yes: "Yes, tell the client", no: "No, don't tell the client" },
 };
+export const CHIP: Record<string, string> = {
+  required: "🟠 Needed",
+  undetermined: "🟡 Your call",
+  not_required: "🟢 Not needed",
+  controller_duty: "⚪ The client's job",
+  controller_decides: "⚪ The client decides",
+};
 export const PLAIN_STATUS: Record<string, string> = {
   required: "yes, this needs to be done",
   not_required: "not needed, based on confirmed facts",
@@ -311,12 +318,48 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
           context(
             rule.assessment !== false && `Severity: *${sev.value?.replace("_", " ") ?? "unknown"}* (${sev.state === "confirmed" ? "confirmed" : "proposed"})`,
             rule.clock && clock?.dueAt && `CNIL deadline: *${formatParis(clock.dueAt)}* Paris${clock.overdue ? ", *overdue*" : ""}${clock.provisional ? " (provisional)" : ""}`,
-            `Your role: ${ROLE_LABEL[role]}`,
+            role !== "lawyer" && `Your role: ${ROLE_LABEL[role]}`,
             `<${reportUrl(id)}|Live report>`,
           ),
         ];
+  // The lawyer reads this on a phone (Martyna): one line per decision waiting for her, the rest behind "View details".
+  if (role === "lawyer") {
+    info.splice(0, info.length, section(lawyerLines(assessment, decisions)));
+    const sign = controls.find((b) => b.block_id === "sign") as { elements: Block[] } | undefined;
+    sign?.elements.splice(-2, 0, button("View details", "dm_details", JSON.stringify({ incidentId: id, role })));
+  }
   const blocks = [...top, ...info, ...(info.length && controls.length ? [divider] : []), ...controls];
   return { kind: rule.kind, blocks, text: lines.join("\n\n"), details, questionIds: questions.map((q) => q.id) };
+}
+
+const SHORT_QUESTION: Record<(typeof DECIDABLE_OBLIGATIONS)[number], string> = {
+  "gdpr.notify_authority": "Report to the CNIL?",
+  "gdpr.inform_subjects": "Tell the people affected?",
+  "gdpr.notify_controller": "Tell the client?",
+};
+
+// Sober DMs (#57, no emoji): the status in two words.
+const PLAIN_LINE: Record<string, string> = { required: "needed", undetermined: "your call", not_required: "not needed" };
+
+// "• *Report to the CNIL?* needed · Cécile (DPO): go ahead · unsure: kind of information", one per open decision.
+function lawyerLines(assessment: Assessment, decisions: DecisionStatus[]): string {
+  const latest = (o: string, s: Stage) => decisions.find((d) => d.obligationId === o && d.stage === s);
+  const open = ours(assessment).filter((o) => {
+    const d = latest(o, "decision");
+    return !(d?.status === "current" && d.decision.choice !== "defer");
+  });
+  if (!open.length) return "*Nothing to decide right now.* You will get a message if that changes.";
+  const line = (id: (typeof DECIDABLE_OBLIGATIONS)[number]) => {
+    const o = assessment.obligations.find((x) => x.id === id)!;
+    const rec = latest(id, "recommendation");
+    const advice = rec
+      ? `${rec.decision.by.name.split(" ")[0]} (DPO): *${PLAIN_CHOICE[rec.decision.choice] ?? rec.decision.choice}*${rec.status === "to_re_evaluate" ? " (facts changed since)" : ""}`
+      : "no DPO advice yet";
+    const u = o.factsToConfirm.map((k) => factLabel(k).toLowerCase());
+    const unsure = u.length ? ` · unsure: ${u.slice(0, 2).join(", ")}${u.length > 2 ? ` +${u.length - 2}` : ""}` : "";
+    return `• *${SHORT_QUESTION[id]}* ${PLAIN_LINE[o.status] ?? o.status} · ${advice}${unsure}`;
+  };
+  return `*Your decision is needed*\n${open.map(line).join("\n")}`;
 }
 
 // Q9/Q14: what the DPO and the lawyer sign. Q7: phased notification near the deadline.
