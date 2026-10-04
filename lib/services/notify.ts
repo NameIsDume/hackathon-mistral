@@ -158,7 +158,7 @@ const shortState = (f: Fact<unknown>) =>
 const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
 // "Phishing on the CRM: 3 exports downloaded." -> "Phishing on the CRM".
 const shortTitle = (brief: string | null) => {
-  const t = brief?.split(/[:.\n]/)[0].trim();
+  const t = brief?.split(/[:;.\n]/)[0].trim();
   return t ? clip(t, 60) : null;
 };
 
