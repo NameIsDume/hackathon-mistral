@@ -39,6 +39,10 @@ export const fact = <T extends z.ZodType>(value: T) =>
     sources: z.array(FactSource),
     confirmedBy: z.string().optional(),
     confirmedAt: z.iso.datetime({ offset: true }).optional(),
+    // Q13 "I don't know": the value and state stay as they were (an AI proposal stays "proposed"); who and when are kept.
+    // The GDPR fact reader treats a fact carrying dontKnowBy as unknown (lib/regulations/gdpr/index.ts).
+    dontKnowBy: z.string().optional(),
+    dontKnowAt: z.iso.datetime({ offset: true }).optional(),
   });
 const AnyFact = fact(z.unknown());
 export type Fact<T> = Omit<z.infer<typeof AnyFact>, "value"> & { value: T | null };
@@ -54,7 +58,9 @@ export const IncidentSnapshot = z.object({
 });
 export type IncidentSnapshot = z.infer<typeof IncidentSnapshot>;
 
-export const ObligationStatus = z.enum(["required", "not_required", "undetermined"]);
+// controller_duty / controller_decides: we are the confirmed processor, the obligation belongs to the client (controller).
+// They are shown instead of "not required" (lawyers' decisions 2026-10-04, Q3 and Q4) and, like it, need confirmed facts.
+export const ObligationStatus = z.enum(["required", "not_required", "undetermined", "controller_duty", "controller_decides"]);
 export type ObligationStatus = z.infer<typeof ObligationStatus>;
 
 export const Deadline = z.discriminatedUnion("policy", [
@@ -103,6 +109,9 @@ export type RegulationModule = {
 // Events stored in incident_events (type column = `type`, payload column = the rest).
 // Written by the core (intake, Slack routing, answers, decisions); read by the dashboard.
 const Person = z.object({ role: Role, name: z.string(), slackUserId: z.string().optional() });
+// Sections of the CNIL draft written by the AI and signed off by the lawyer (Cécile), shared with the register and the notice.
+export const DraftSection = z.enum(["consequences", "measures"]);
+export type DraftSection = z.infer<typeof DraftSection>;
 
 export const IncidentEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("signal"), signalId: z.uuid(), connectorId: z.string(), actor: z.string(), excerpt: z.string() }),
@@ -136,13 +145,42 @@ export const IncidentEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("awareness"), by: Person, at: z.iso.datetime({ offset: true }), previousAt: z.iso.datetime({ offset: true }).nullable() }),
   z.object({
     type: z.literal("decision"),
+    // Q9: the DPO records a recommendation, the lawyer signs the decision. Absent = a decision recorded before #48.
+    stage: z.enum(["recommendation", "decision"]).optional(),
     by: Person,
     obligationId: z.string(),
-    choice: z.enum(["notify", "do_not_notify"]),
-    reasons: z.string(),
+    choice: z.enum(["notify", "do_not_notify", "defer"]), // defer = waiting for facts (Q7)
+    reasons: z.string(), // readable rendering of `structured`, as shown in the register
+    // Q10 structured reasons (absent before #48).
+    structured: z
+      .object({
+        factsReliedOn: z.array(z.string()),
+        riskFactors: z.string(),
+        exceptionRelied: z.string().optional(),
+        evidence: z.string().optional(),
+        delayReason: z.string().optional(),
+        freeText: z.string().optional(),
+      })
+      .optional(),
+    override: z.boolean().optional(), // Q7: do not notify while the result is not "not required on confirmed facts"
+    flag: z.string().optional(), // Q8: notify against "not required" (flagged, never blocked)
     factsVersion: z.int().positive(),
     moduleVersion: z.string(),
   }),
-  z.object({ type: z.literal("draft"), document: z.enum(["cnil_notification", "breach_register", "subjects_notice"]), status: z.enum(["draft", "validated"]) }),
+  // draft: a document was generated (`ai` = AI first pass of the sections the lawyer must approve, CNIL draft only).
+  // section_approved: the lawyer's final text for one section (the AI version stays in the earlier `draft` event).
+  // sent: the DPO recorded the transmission (sentAt, CNIL reference when given). "Ready to send" is derived:
+  // both sections approved. A decision to notify is not a notification sent.
+  z.object({
+    type: z.literal("draft"),
+    document: z.enum(["cnil_notification", "breach_register", "subjects_notice"]),
+    status: z.enum(["draft", "section_approved", "sent"]),
+    ai: z.record(DraftSection, z.string().nullable()).optional(),
+    section: DraftSection.optional(),
+    text: z.string().min(1).optional(),
+    by: Person.optional(),
+    sentAt: z.iso.datetime({ offset: true }).optional(),
+    reference: z.string().min(1).optional(),
+  }),
 ]);
 export type IncidentEvent = z.infer<typeof IncidentEvent>;

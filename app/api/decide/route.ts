@@ -1,4 +1,4 @@
-// POST a DPO-signed decision on one obligation. 201 with the recorded `decision` event; a double submit records once.
+// POST a DPO recommendation or a lawyer-signed decision on one obligation (Q9). 201 with the recorded `decision` event; a double submit records once.
 import { z } from "zod";
 import { IncidentNotFound, VersionConflict } from "@/lib/adapters/supabase";
 import { requireDemoKey } from "@/lib/demo-auth";
@@ -8,8 +8,16 @@ import { decide, DECIDABLE_OBLIGATIONS, DecisionRefused } from "@/lib/services/d
 const Body = z.object({
   incidentId: z.uuid(),
   obligationId: z.enum(DECIDABLE_OBLIGATIONS),
-  choice: z.enum(["notify", "do_not_notify"]),
-  reasons: z.string().max(4000),
+  stage: z.enum(["recommendation", "decision"]),
+  choice: z.enum(["notify", "do_not_notify", "defer"]),
+  reasons: z.object({
+    factsReliedOn: z.array(z.string()).max(100),
+    riskFactors: z.string().max(3000),
+    exceptionRelied: z.string().max(3000).optional(),
+    evidence: z.string().max(3000).optional(),
+    delayReason: z.string().max(3000).optional(),
+    freeText: z.string().max(3000).optional(),
+  }),
   by: z.object({ role: Role, name: z.string().trim().min(1).max(200) }),
   overrideRecommendation: z.boolean().optional(),
 });

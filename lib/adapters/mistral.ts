@@ -150,11 +150,14 @@ export async function intake(text: string, budgetMs = BUDGET_MS) {
   return { classification, extraction: await extractIncident(text, signal) };
 }
 
-// Narrative for one section of the CNIL draft, written only from known facts (passed as JSON, quoted as untrusted data).
+// AI first pass for one section of the CNIL draft (the lawyer approves consequences and measures), written only from known facts (passed as JSON, quoted as untrusted data).
 // R11: a narrative citing a number absent from the facts is dropped (null); so is any failure. The document works without it.
 const NARRATIVE_TASK = {
   nature: "the nature of the personal data breach (what happened, which data, which people, how many)",
   consequences: "the likely consequences of the breach for the people concerned",
+  // Cécile: never describe a proposed measure as taken.
+  measures:
+    'the measures taken or proposed to address the breach and mitigate its possible adverse effects. Describe as taken ONLY what the "measures_taken" fact says was done; phrase anything else as proposed ("we propose to..."), never as done',
 } as const;
 const numbers = (s: string) => (s.match(/\d[\d,.   ]*\d|\d/g) ?? []).map((n) => n.replace(/\D/g, ""));
 
