@@ -149,3 +149,41 @@ export async function intake(text: string, budgetMs = BUDGET_MS) {
   if (classification && !classification.isIncident) return { classification, extraction: null };
   return { classification, extraction: await extractIncident(text, signal) };
 }
+
+// Narrative for one section of the CNIL draft, written only from known facts (passed as JSON, quoted as untrusted data).
+// R11: a narrative citing a number absent from the facts is dropped (null); so is any failure. The document works without it.
+const NARRATIVE_TASK = {
+  nature: "the nature of the personal data breach (what happened, which data, which people, how many)",
+  consequences: "the likely consequences of the breach for the people concerned",
+} as const;
+const numbers = (s: string) => (s.match(/\d[\d,.   ]*\d|\d/g) ?? []).map((n) => n.replace(/\D/g, ""));
+
+export async function draftNarrative(
+  kind: keyof typeof NARRATIVE_TASK,
+  facts: Record<string, Fact<unknown>>,
+  signal = AbortSignal.timeout(BUDGET_MS),
+): Promise<string | null> {
+  const known = Object.fromEntries(
+    Object.entries(facts)
+      .filter(([, f]) => f.state !== "disputed" && f.value !== null && f.value !== undefined)
+      .map(([k, f]) => [k, { value: f.value, state: f.state }]),
+  );
+  const data = JSON.stringify(known);
+  try {
+    const { output } = await callMistral(
+      "draft",
+      z.object({ narrative: z.string() }),
+      `${GUARD}
+Here the message is a JSON object of incident facts (state "proposed" means not yet confirmed).
+Write 2 to 4 plain sentences describing ${NARRATIVE_TASK[kind]}, for a draft notification to the CNIL.
+Use ONLY these facts. Do not add any number, date, cause or consequence that is not in the facts.
+Say "to be confirmed" for proposed facts. Do not cite legal articles and do not decide anything.`,
+      data,
+      signal,
+    );
+    const allowed = new Set(numbers(data));
+    return numbers(output.narrative).every((n) => allowed.has(n)) ? output.narrative.trim() : null;
+  } catch {
+    return null;
+  }
+}
