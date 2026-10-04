@@ -88,6 +88,21 @@ describe("draft actions in Slack", () => {
     expect(m.recordEvent).not.toHaveBeenCalled();
   });
 
+  it("#57: 'View full draft' shows the current draft read-only (approved sections, posted description), to the DPO and the lawyer only", async () => {
+    m.listEvents.mockResolvedValue([AI, approved("consequences")]);
+    expect((await post(click("U_DPO", "draft_view", { document: "cnil_notification", nature: "A phishing email led to the export." }))).status).toBe(200);
+    const [open] = bodies("views.open");
+    expect(open.view.callback_id).toBeUndefined();
+    expect(open.view.blocks[0]).toMatchObject({ type: "header" });
+    const shown = JSON.stringify(open.view.blocks);
+    expect(shown).toContain("A phishing email led to the export.");
+    expect(shown).toContain("Lawyer consequences.");
+    expect(shown).toContain("AI measures.");
+    await post(click("U_OTHER", "draft_view", { document: "cnil_notification" }));
+    expect(JSON.stringify(bodies("views.open")[1].view.blocks)).toContain("addressed to the DPO and the lawyer");
+    expect(m.recordEvent).not.toHaveBeenCalled();
+  });
+
   it("only the lawyer can approve a section", async () => {
     const res = await post(approve("U_DPO", "Customers may receive phishing emails."));
     expect(await res.json()).toMatchObject({ response_action: "errors", errors: { text: expect.stringContaining("Only the lawyer") } });

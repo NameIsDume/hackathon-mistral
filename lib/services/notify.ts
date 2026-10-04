@@ -4,7 +4,7 @@ import { Severity, type Assessment, type Fact, type IncidentEvent, type Incident
 import { evaluate } from "@/lib/regulations/gdpr";
 import { GDPR_FACTS, GDPR_QUESTIONS, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
 import { db, listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
-import { briefBlocks, button, openDm, option, plain, postDm, questionBlocks, section, type Block } from "@/lib/adapters/slack";
+import { button, context, divider, fields, header, openDm, option, plain, postDm, questionBlocks, section, type Block } from "@/lib/adapters/slack";
 import { DECIDABLE_OBLIGATIONS, decisionStatus, SIGNERS, type DecisionStatus, type Stage } from "@/lib/services/decide";
 import { deadline, formatParis, type Clock } from "@/lib/clocks";
 
@@ -92,82 +92,133 @@ export const showValue = (v: unknown) =>
 
 export const isBooleanFact = (key: string) => key in GDPR_FACTS && GDPR_FACTS[key as GdprFactKey].value instanceof z.ZodBoolean;
 
-export type Dm = { kind: Kind; blocks: Block[]; text: string; questionIds: string[] };
+// blocks: the sober DM (#57). text: the full plain record (notification fallback, `preview` in the event log, dedupe).
+// details: the paragraphs behind "View details" (dm_details), only what this role may see.
+export type Dm = { kind: Kind; blocks: Block[]; text: string; details: string[]; questionIds: string[] };
 // reask: fact keys the lawyer asked to check again (asked even when already answered).
-type Ctx = { snapshot: IncidentSnapshot; assessment: Assessment; brief: string | null; now: Date; decisions?: DecisionStatus[]; reask?: string[] };
+export type DmContext = { snapshot: IncidentSnapshot; assessment: Assessment; brief: string | null; now: Date; decisions?: DecisionStatus[]; reask?: string[] };
+
+const ROLE_LABEL: Record<Role, string> = {
+  reporter: "Reporter",
+  it: "IT",
+  business_owner: "Business owner",
+  dpo: "DPO",
+  lawyer: "Lawyer",
+  management: "Management",
+  communications: "Communications",
+};
+// One-line obligation names for the DM; OBLIGATION_LABEL stays the full wording (details, modals, drafts).
+const OBLIGATION_SHORT: Record<string, string> = {
+  "gdpr.record_breach": "Internal register",
+  "gdpr.notify_controller": "Client notification",
+  "gdpr.notify_authority": "CNIL notification",
+  "gdpr.inform_subjects": "Informing the people concerned",
+};
+export const factLabel = (key: string) => key.charAt(0).toUpperCase() + key.slice(1).replaceAll("_", " ");
+const shortState = (f: Fact<unknown>) =>
+  (f.state === "disputed" ? "marked wrong" : f.value === null ? "unknown" : f.state === "confirmed" ? "confirmed" : "to confirm") + (f.dontKnowBy ? ", I don't know" : "");
+const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+// "Phishing on the CRM: 3 exports downloaded." -> "Phishing on the CRM".
+const shortTitle = (brief: string | null) => {
+  const t = brief?.split(/[:.\n]/)[0].trim();
+  return t ? clip(t, 60) : null;
+};
 
 // Pure: the DM a role receives, or null when the role receives nothing.
-export function buildDm(role: Role, { snapshot, assessment, brief, now, decisions = [], reask = [] }: Ctx): Dm | null {
+// Layout (#57, same order for every role): header, context line, summary, facts (two columns), obligations, divider,
+// controls (review, questions, signing). Reasons, legal refs and sources live behind "View details".
+export function buildDm(role: Role, { snapshot, assessment, brief, now, decisions = [], reask = [] }: DmContext): Dm | null {
   const rule = ROLE_MATRIX[role];
   if (!rule) return null;
+  const id = snapshot.id;
   const stage = (Object.keys(SIGNERS) as Stage[]).find((s) => SIGNERS[s] === role);
   const authority = assessment.obligations.find((o) => o.id === "gdpr.notify_authority");
   const clock = authority?.deadline && deadline(authority.deadline, snapshot, now);
-  const blocks: Block[] = [];
-  const lines: string[] = [];
-  const para = (t: string) => {
-    blocks.push(section(t));
+  const lines: string[] = []; // the full record
+  const details: string[] = [];
+  const info: Block[] = [];
+  const controls: Block[] = [];
+  const detail = (t: string) => {
     lines.push(t);
+    details.push(t);
   };
 
-  if (rule.ack)
-    para(
-      "Thank you, your report was received and the incident response team is on it.\n*What to do now:* do not delete anything (emails, files, logs), do not try to fix it yourself, stay reachable for IT, and do not discuss the incident outside the response team.",
-    );
-  if (rule.brief) para(`*Summary:* ${brief ?? "summary not available yet."}`);
+  if (rule.ack) {
+    const ack =
+      "Thank you, your report was received and the incident response team is on it.\n*What to do now:* do not delete anything (emails, files, logs), do not try to fix it yourself, stay reachable for IT, and do not discuss the incident outside the response team.";
+    lines.push(ack);
+    info.push(section(ack));
+  }
+  if (rule.brief) {
+    lines.push(`*Summary:* ${brief ?? "summary not available yet."}`);
+    info.push(section(brief ? clip(brief, 280) : "_Summary not available yet._"));
+  }
   if (rule.facts) {
-    const rows = Object.entries(snapshot.facts).map(([k, f]) => {
+    const entries = Object.entries(snapshot.facts);
+    const rows = entries.map(([k, f]) => {
       const src = f.sources.map((s) => `"${s.excerpt}"`).join("; ");
       return `• ${k}: ${showValue(f.value)} — ${factState(f)}${src ? ` — ${src}` : ""}`;
     });
-    para(`*Facts*\n${rows.join("\n") || "none yet"}`);
+    detail(`*Facts*\n${rows.join("\n") || "none yet"}`);
+    const cells = entries.map(([k, f]) => `*${factLabel(k)}*\n${clip(showValue(f.value), 80)} · ${shortState(f)}`);
+    const shown = cells.length > 10 ? [...cells.slice(0, 9), `*${cells.length - 9} more facts*\nin the details`] : cells;
+    const view = button("View details", "dm_details", JSON.stringify({ incidentId: id, role }));
+    info.push(shown.length ? fields(shown, view) : { ...section("_No facts yet._"), accessory: view });
   }
+
+  // Obligations: one line each in the DM; reasons and legal refs in the details.
+  const latest = (o: string, s: Stage) => decisions.find((d) => d.obligationId === o && d.stage === s);
+  const summary: string[] = [];
+  const status = (o: Assessment["obligations"][number]) => `• ${OBLIGATION_SHORT[o.id] ?? o.id} — *${o.status.replaceAll("_", " ")}*`;
   if (rule.assessment === "full")
-    for (const o of assessment.obligations)
-      para(
+    for (const o of assessment.obligations) {
+      detail(
         `*${OBLIGATION_LABEL[o.id] ?? o.id}*: ${o.status} (${o.legalRefs.join(", ")})\n${o.reasons.join("\n")}` +
           (o.factsToConfirm.length ? `\nFacts to confirm: ${o.factsToConfirm.join(", ")}` : ""),
       );
-  if (rule.assessment === "statuses")
-    para(assessment.obligations.map((o) => `• ${OBLIGATION_LABEL[o.id] ?? o.id}: ${o.status.replace("_", " ")}`).join("\n"));
+      const n = o.factsToConfirm.length;
+      const signed = stage
+        ? (["recommendation", "decision"] as const)
+            .map((s) => latest(o.id, s))
+            .filter((d) => d !== undefined)
+            .map((d) => `${d.stage === "decision" ? "lawyer" : "DPO"}: ${d.decision.choice.replaceAll("_", " ")}${d.status === "to_re_evaluate" ? " (to re-evaluate)" : ""}`)
+        : [];
+      summary.push(`${status(o)}${n ? `, ${n} fact${n > 1 ? "s" : ""} to confirm` : ""}${signed.map((x) => ` · ${x}`).join("")}`);
+    }
+  if (rule.assessment === "statuses") {
+    lines.push(assessment.obligations.map((o) => `• ${OBLIGATION_LABEL[o.id] ?? o.id}: ${o.status.replace("_", " ")}`).join("\n"));
+    summary.push(...assessment.obligations.map(status));
+  }
   if (rule.clock && clock?.dueAt)
-    para(
+    detail(
       `*72h authority deadline:* ${formatParis(clock.dueAt)}${clock.provisional ? " (provisional: counted from the first signal until awareness is confirmed)" : ""}` +
         (stage ? "\n*Informing the people concerned:* without undue delay once a high risk is established (Art. 34)." : ""),
     );
+  if (stage) summary.push(...signing(stage, { assessment, decisions, clock }, detail));
+  if (summary.length) info.push(section(summary.join("\n")));
 
   if (rule.review) {
-    const id = snapshot.id;
     const s = snapshot.severity;
-    const sev = `*Severity:* ${s.value ?? "unknown"} (${s.state === "confirmed" ? `confirmed by ${s.confirmedBy ?? "a reviewer"}` : "proposed by the AI, to confirm"})`;
-    blocks.push({
-      ...section(sev),
-      accessory: {
-        type: "static_select",
-        action_id: "severity",
-        placeholder: plain("Confirm or correct"),
-        options: Severity.options.map((v) => option(JSON.stringify({ incidentId: id, severity: v }), v.replace("_", " "))),
-      },
-    });
-    lines.push(sev);
-    para(
+    lines.push(`*Severity:* ${s.value ?? "unknown"} (${s.state === "confirmed" ? `confirmed by ${s.confirmedBy ?? "a reviewer"}` : "proposed by the AI, to confirm"})`);
+    lines.push(
       `*Awareness time:* ${snapshot.awarenessAt ? formatParis(snapshot.awarenessAt) : "not set (the 72h clock is provisional, counted from the first signal)"}\nPick when we became aware (your Slack time zone):`,
     );
-    blocks.push({
+    controls.push(section("*Your review:* confirm the severity, and pick when we became aware (your Slack time zone)."), {
       type: "actions",
-      block_id: `awareness:${id}`,
+      block_id: `awareness:${id}`, // read by the awareness action
       elements: [
         {
-          type: "datetimepicker",
-          action_id: "awareness",
-          ...(snapshot.awarenessAt && { initial_date_time: Math.floor(Date.parse(snapshot.awarenessAt) / 1000) }),
+          type: "static_select",
+          action_id: "severity",
+          placeholder: plain("Confirm the severity"),
+          options: Severity.options.map((v) => option(JSON.stringify({ incidentId: id, severity: v }), v.replace("_", " "))),
         },
+        { type: "datetimepicker", action_id: "awareness", ...(snapshot.awarenessAt && { initial_date_time: Math.floor(Date.parse(snapshot.awarenessAt) / 1000) }) },
       ],
     });
   }
-  if (stage) signingBlocks(stage, { snapshot, assessment, decisions, clock }, para, blocks);
 
-  // Facts this role holds: AI proposals to confirm, blocking or disputed facts to answer.
+  // Facts this role holds: AI proposals to confirm, blocking or disputed facts to answer. One section + one button row each.
   const blocking = new Set(assessment.obligations.flatMap((o) => o.blockingQuestions));
   const questions = rule.questions
     ? GDPR_QUESTIONS.filter((q) => {
@@ -179,42 +230,65 @@ export function buildDm(role: Role, { snapshot, assessment, brief, now, decision
         return blocking.has(q.factKey) || f?.state === "disputed" || (f?.state === "proposed" && f.value !== null);
       })
     : [];
-  if (questions.length) para(`*${questions.length === 1 ? "One question" : `${questions.length} questions`} for you*`);
+  if (questions.length) lines.push(`*${questions.length === 1 ? "One question" : `${questions.length} questions`} for you*`);
   for (const q of questions) {
     const f = snapshot.facts[q.factKey];
-    const value = (v: object) => JSON.stringify({ incidentId: snapshot.id, factKey: q.factKey, ...v });
+    const value = (v: object) => JSON.stringify({ incidentId: id, factKey: q.factKey, ...v });
     lines.push(q.text);
     const dontKnow = button("I don't know", "fact_dont_know", value({}));
-    if (reask.includes(q.factKey)) blocks.push(section(`_The lawyer asks you to check this again (currently: ${showValue(f?.value)})._`));
+    const again = reask.includes(q.factKey) ? `\n_The lawyer asks you to check this again (currently: ${showValue(f?.value)})._` : "";
     if (f?.state === "proposed" && f.value !== null) {
       const src = f.sources.map((s) => s.excerpt).filter(Boolean).join(" … ");
-      blocks.push(section(`*${q.text}*\nThe AI suggests: *${showValue(f.value)}*${src ? `\n> ${src.slice(0, 500)}` : ""}`), {
+      controls.push(section(`*${q.text}*${again}\nThe AI suggests: *${showValue(f.value)}*${src ? ` — _“${clip(src, 150)}”_` : ""}`), {
         type: "actions",
         block_id: q.factKey,
         elements: [button("Confirm", "fact_confirm", value({}), "primary"), button("Wrong", "fact_wrong", value({}), "danger"), dontKnow],
       });
-    } else if (isBooleanFact(q.factKey)) blocks.push(...questionBlocks(snapshot.id, q.factKey, q.text));
+    } else if (isBooleanFact(q.factKey)) controls.push(...questionBlocks(id, q.factKey, `*${q.text}*${again}`));
     else
-      blocks.push(section(`*${q.text}*${f?.state === "disputed" ? `\n_The suggested value (${showValue(f.value)}) was marked wrong._` : ""}`), {
+      controls.push(section(`*${q.text}*${again}${f?.state === "disputed" ? `\n_The suggested value (${showValue(f.value)}) was marked wrong._` : ""}`), {
         type: "actions",
         block_id: q.factKey,
         elements: [button("Answer", "fact_input", value({})), dontKnow],
       });
   }
+  if (stage) {
+    const elements = DECIDABLE_OBLIGATIONS.map((o) =>
+      button(`${stage === "decision" ? "Decide" : "Recommend"}: ${SHORT_LABEL[o]}`, `sign_decision:${o}`, JSON.stringify({ incidentId: id, obligationId: o, stage })),
+    );
+    if (stage === "decision")
+      elements.push(
+        button("Ask a follow-up question", "lawyer_ask", JSON.stringify({ incidentId: id })),
+        button("Request more facts", "lawyer_request_facts", JSON.stringify({ incidentId: id })),
+      );
+    controls.push({ type: "actions", block_id: "sign", elements });
+  }
 
   if (!lines.length) return null;
-  const title = { reporter: "Report received", management: "Incident note for management" }[role as string] ?? "Incident update";
-  return { kind: rule.kind, blocks: [...briefBlocks(title, []), ...blocks], text: lines.join("\n\n"), questionIds: questions.map((q) => q.id) };
+  const sev = snapshot.severity;
+  const top =
+    role === "reporter"
+      ? [header("Report received")]
+      : [
+          header(`Incident · ${shortTitle(rule.brief ? brief : null) ?? id.slice(0, 8)}`),
+          context(
+            rule.assessment !== false && `Severity: *${sev.value?.replace("_", " ") ?? "unknown"}* (${sev.state === "confirmed" ? "confirmed" : "proposed"})`,
+            rule.clock && clock?.dueAt && `CNIL deadline: *${formatParis(clock.dueAt)}* Paris${clock.overdue ? ", *overdue*" : ""}${clock.provisional ? " (provisional)" : ""}`,
+            `Your role: ${ROLE_LABEL[role]}`,
+          ),
+        ];
+  const blocks = [...top, ...info, ...(info.length && controls.length ? [divider] : []), ...controls];
+  return { kind: rule.kind, blocks, text: lines.join("\n\n"), details, questionIds: questions.map((q) => q.id) };
 }
 
-// Q9/Q14: the DPO's recommendation controls, or the lawyer's case to decide. Q7: phased notification near the deadline.
-function signingBlocks(
+// Q9/Q14: what the DPO and the lawyer sign. Q7: phased notification near the deadline.
+// Full paragraphs go to the details; returns the short lines for the DM.
+function signing(
   stage: Stage,
-  { snapshot, assessment, decisions, clock }: { snapshot: IncidentSnapshot; assessment: Assessment; decisions: DecisionStatus[]; clock?: Clock },
-  para: (t: string) => void,
-  blocks: Block[],
-) {
-  const id = snapshot.id;
+  { assessment, decisions, clock }: { assessment: Assessment; decisions: DecisionStatus[]; clock?: Clock },
+  detail: (t: string) => void,
+): string[] {
+  const out: string[] = [];
   const latest = (o: string, s: Stage) => decisions.find((d) => d.obligationId === o && d.stage === s);
   const settled = (o: string) => {
     const d = latest(o, "decision");
@@ -224,34 +298,33 @@ function signingBlocks(
 
   if (stage === "decision") {
     const open = [...new Set(assessment.obligations.flatMap((o) => o.blockingQuestions))];
-    para(`*Open questions*\n${open.map((k) => `• ${k} (asked to ${GDPR_FACTS[k as GdprFactKey]?.role.replace("_", " ") ?? "?"})`).join("\n") || "none"}`);
+    const asked = (k: string) => GDPR_FACTS[k as GdprFactKey]?.role.replace("_", " ") ?? "?";
+    detail(`*Open questions*\n${open.map((k) => `• ${k} (asked to ${asked(k)})`).join("\n") || "none"}`);
+    const holder = (k: string) => (k in GDPR_FACTS ? ROLE_LABEL[GDPR_FACTS[k as GdprFactKey].role] : "?");
+    if (open.length) out.push(`*Open questions:* ${open.map((k) => `${factLabel(k).toLowerCase()} (${holder(k)})`).join(", ")}`);
   }
   const listed = (s: Stage) => decisions.filter((d) => d.stage === s).map(describeDecision).join("\n");
-  para(`*DPO recommendations*\n${listed("recommendation") || "none yet"}\n*Lawyer decisions*\n${listed("decision") || "none signed yet"}`);
+  detail(`*DPO recommendations*\n${listed("recommendation") || "none yet"}\n*Lawyer decisions*\n${listed("decision") || "none signed yet"}`);
 
   const authority = statusOf("gdpr.notify_authority");
   // Rules 1.0.0 treat unknown as yes, so "undetermined" mostly shows as "required, facts to confirm": same Art. 33(4) case.
   const pending = authority === "undetermined" || (authority === "required" && !!assessment.obligations.find((x) => x.id === "gdpr.notify_authority")?.factsToConfirm.length);
   const deferred = (latest("gdpr.notify_authority", "decision") ?? latest("gdpr.notify_authority", "recommendation"))?.decision.choice === "defer";
-  if (clock?.dueAt && clock.remainingMs <= PHASED_WITHIN_MS && !settled("gdpr.notify_authority") && (pending || deferred))
-    para(
-      `*Propose a phased notification (Art. 33(4)):* the CNIL deadline (${formatParis(clock.dueAt)}) is less than 12 h away and the decision is still ${deferred ? "deferred" : "pending facts to confirm"}. Notify now with what is known and complete it as facts come in.`,
+  if (clock?.dueAt && clock.remainingMs <= PHASED_WITHIN_MS && !settled("gdpr.notify_authority") && (pending || deferred)) {
+    const why = deferred ? "deferred" : "pending facts to confirm";
+    detail(
+      `*Propose a phased notification (Art. 33(4)):* the CNIL deadline (${formatParis(clock.dueAt)}) is less than 12 h away and the decision is still ${why}. Notify now with what is known and complete it as facts come in.`,
     );
+    out.push(`*Phased notification suggested (Art. 33(4)):* less than 12 h left, decision still ${why}.`);
+  }
 
   if (stage === "decision") {
     // Every decidable obligation not yet signed for good, unless it is "not required" and nobody recommended anything.
     const needed = DECIDABLE_OBLIGATIONS.filter((o) => !settled(o) && (statusOf(o) !== "not_required" || latest(o, "recommendation")));
-    para(needed.length ? `*Your decision is needed:* ${needed.map((o) => OBLIGATION_LABEL[o]).join("; ")}.` : "*No decision pending.*");
+    detail(needed.length ? `*Your decision is needed:* ${needed.map((o) => OBLIGATION_LABEL[o]).join("; ")}.` : "*No decision pending.*");
+    out.push(needed.length ? `*Your decision is needed:* ${needed.map((o) => SHORT_LABEL[o]).join(", ")}.` : "*No decision pending.*");
   }
-  const elements = DECIDABLE_OBLIGATIONS.map((o) =>
-    button(`${stage === "decision" ? "Decide" : "Recommend"}: ${SHORT_LABEL[o]}`, `sign_decision:${o}`, JSON.stringify({ incidentId: id, obligationId: o, stage })),
-  );
-  if (stage === "decision")
-    elements.push(
-      button("Ask a follow-up question", "lawyer_ask", JSON.stringify({ incidentId: id })),
-      button("Request more facts", "lawyer_request_facts", JSON.stringify({ incidentId: id })),
-    );
-  blocks.push({ type: "actions", block_id: "sign", elements });
+  return out;
 }
 
 // ---------------------------------------------------------------------------

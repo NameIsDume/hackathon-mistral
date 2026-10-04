@@ -6,14 +6,15 @@ import { Role, Severity, type Fact } from "@/lib/domain";
 import { GDPR_FACTS, type GdprFactKey } from "@/lib/regulations/gdpr/facts";
 import { evaluate } from "@/lib/regulations/gdpr";
 import { db, listEvents, loadSnapshot, recordEvent, VersionConflict } from "@/lib/adapters/supabase";
-import { ANSWER_LABEL, markdownBlocks, openDm, openView, option, plain, postDm, section, updateMessage, type Block } from "@/lib/adapters/slack";
-import { buildDm, factState, formatLeft, isBooleanFact, notifyWave, OBLIGATION_LABEL, recordWithRetry, showValue } from "@/lib/services/notify";
+import { ANSWER_LABEL, context, openDm, openView, option, plain, postDm, section, sections, updateMessage, type Block } from "@/lib/adapters/slack";
+import { buildDm, type DmContext, factState, formatLeft, isBooleanFact, notifyWave, OBLIGATION_LABEL, recordWithRetry, showValue } from "@/lib/services/notify";
 import { confirmSeverity, InvalidAwareness, setAwareness } from "@/lib/services/review";
 import { decide, DECIDABLE_OBLIGATIONS, decisionStatus, DecisionRefused, flagFor, needsOverride, SIGNERS, type Stage } from "@/lib/services/decide";
 import { deadline, formatParis } from "@/lib/clocks";
 import { buildDraft, DraftRefused, type DraftDocument } from "@/lib/services/drafts";
 import { afterSeverityChange } from "@/lib/services/triggers";
-import { draftActionBlocks, handleDraftInteraction, isDraftInteraction } from "@/lib/services/slack-drafts";
+import { draftMessage, handleDraftInteraction, isDraftInteraction } from "@/lib/services/slack-drafts";
+import type { GdprDocument } from "@/lib/regulations/gdpr/templates";
 
 // ---------------------------------------------------------------------------
 // Payloads (only the fields we use)
@@ -147,11 +148,17 @@ const confirmed = (old: Fact<unknown>, value: unknown, by: By): Fact<unknown> =>
 
 // Rebuild the clicked DM (with `note` on top) and every DPO's and lawyer's latest DM from the current state.
 // A DM keeps the questions it asked that nobody answered since (so facts the lawyer re-asked stay asked).
-export async function refreshDms(incidentId: string, note: string, own?: { role: Role; channel: string; ts: string }) {
+// What buildDm needs, from the current state.
+async function dmContext(incidentId: string) {
   const [snapshot, events] = await Promise.all([loadSnapshot(incidentId), listEvents(incidentId)]);
   let brief: string | null = null;
   for (const { event: e } of events) if (e.type === "extraction" && e.brief) brief = e.brief;
-  const ctx = { snapshot, assessment: evaluate(snapshot), brief, now: new Date(), decisions: decisionStatus(events) };
+  const ctx: DmContext = { snapshot, assessment: evaluate(snapshot), brief, now: new Date(), decisions: decisionStatus(events) };
+  return { ctx, events };
+}
+
+export async function refreshDms(incidentId: string, note: string, own?: { role: Role; channel: string; ts: string }) {
+  const { ctx, events } = await dmContext(incidentId);
   type Target = { role: Role; channel: string; ts: string; reask: string[] };
   const targets = new Map<string, Target>();
   const sent: Target[] = [];
@@ -168,7 +175,7 @@ export async function refreshDms(incidentId: string, note: string, own?: { role:
   if (own && !list.some((t) => t.channel === own.channel && t.ts === own.ts))
     list.push(sent.find((t) => t.channel === own.channel && t.ts === own.ts) ?? { ...own, reask: [] });
   await Promise.all(
-    list.map((t) => updateMessage(t.channel, t.ts, [section(`_${note}_`), ...(buildDm(t.role, { ...ctx, reask: t.reask })?.blocks ?? [])].slice(0, 50), note)),
+    list.map((t) => updateMessage(t.channel, t.ts, [context(note), ...(buildDm(t.role, { ...ctx, reask: t.reask })?.blocks ?? [])].slice(0, 50), note)),
   );
 }
 
@@ -361,6 +368,24 @@ async function onAction(p: BlockActions): Promise<Outcome> {
     return {};
   }
 
+  // "View details" (#57): read-only modal with what this role's DM summarises (facts with sources, reasons, decisions).
+  if (a.action_id === "dm_details") {
+    const v = z.object({ incidentId: z.uuid(), role: Role }).parse(json(a.value));
+    const [by, { ctx }] = await Promise.all([personWithRole(p.user.id, v.role), dmContext(v.incidentId)]);
+    if (!by) {
+      await tell(p, "These details are addressed to someone else.");
+      return {};
+    }
+    const details = buildDm(v.role, ctx)?.details ?? [];
+    await openView(z.string().parse(p.trigger_id), {
+      type: "modal",
+      title: plain("Details", 24),
+      close: plain("Close", 24),
+      blocks: (details.length ? details.flatMap(sections) : [section("_Nothing more to show._")]).slice(0, 100),
+    });
+    return {};
+  }
+
   if (a.action_id === "severity") {
     const v = SeverityValue.parse(json(a.selected_option?.value));
     return {
@@ -541,26 +566,26 @@ const DRAFTS: DraftDocument[] = ["cnil_notification", "breach_register", "subjec
 
 // Builds both drafts (recorded as `draft` events, keys derived from the decision) and posts them to the DPO and the lawyer.
 export async function postDrafts(incidentId: string, decisionKey: string) {
-  const docs: { document: DraftDocument; md: string }[] = [];
+  const docs: { document: DraftDocument; doc: GdprDocument }[] = [];
   for (const document of DRAFTS)
     for (let attempt = 0; ; attempt++) {
       try {
-        docs.push({ document, md: (await buildDraft(incidentId, document, `${decisionKey}:draft:${document}`)).markdown });
+        docs.push({ document, doc: (await buildDraft(incidentId, document, `${decisionKey}:draft:${document}`)).document });
         break;
       } catch (e) {
         if (e instanceof DraftRefused) break; // subjects notice before the lawyer decided to inform
         if (!(e instanceof VersionConflict) || attempt > 0) throw e;
       }
     }
-  const { data, error } = await db().from("people").select("slack_user_id, role").in("role", ["dpo", "lawyer"]);
+  const [{ data, error }, snapshot, events] = await Promise.all([
+    db().from("people").select("slack_user_id, role").in("role", ["dpo", "lawyer"]),
+    loadSnapshot(incidentId),
+    listEvents(incidentId),
+  ]);
   if (error) throw new Error(error.message);
   for (const person of data as { slack_user_id: string | null }[]) {
     if (!person.slack_user_id) continue;
     const channel = await openDm(person.slack_user_id);
-    for (const { document, md } of docs) {
-      const actions = draftActionBlocks(incidentId, document);
-      const blocks = [section("_Draft, to review before any use: nothing has been sent._"), ...markdownBlocks(md)].slice(0, 50 - actions.length);
-      await postDm(channel, [...blocks, ...actions], md.split("\n")[0].replace(/^# /, ""));
-    }
+    for (const { document, doc } of docs) await postDm(channel, draftMessage(incidentId, document, doc, snapshot, events), doc.title);
   }
 }
