@@ -10,8 +10,9 @@ import { ANSWER_LABEL, markdownBlocks, openDm, openView, option, plain, postDm, 
 import { buildDm, isBooleanFact, OBLIGATION_LABEL, showValue } from "@/lib/services/notify";
 import { confirmSeverity, InvalidAwareness, setAwareness } from "@/lib/services/review";
 import { decide, DECIDABLE_OBLIGATIONS, decisionStatus, DecisionRefused } from "@/lib/services/decide";
-import { buildDraft, type DraftDocument } from "@/lib/services/drafts";
+import { buildDraft, DraftRefused, type DraftDocument } from "@/lib/services/drafts";
 import { afterSeverityChange } from "@/lib/services/triggers";
+import { draftActionBlocks, handleDraftInteraction, isDraftInteraction } from "@/lib/services/slack-drafts";
 
 // ---------------------------------------------------------------------------
 // Payloads (only the fields we use)
@@ -213,6 +214,7 @@ async function decisionModal(meta: z.infer<typeof SignMeta>): Promise<Block> {
 // ---------------------------------------------------------------------------
 
 export async function handleInteraction(payload: unknown): Promise<Outcome> {
+  if (isDraftInteraction(payload)) return handleDraftInteraction(payload); // draft_* actions (#49): lib/services/slack-drafts.ts
   const p = Interaction.parse(payload);
   return p.type === "block_actions" ? onAction(p) : onSubmit(p);
 }
@@ -361,17 +363,18 @@ async function onSubmit(p: ViewSubmission): Promise<Outcome> {
 // Drafts after a decision
 // ---------------------------------------------------------------------------
 
-const DRAFTS: DraftDocument[] = ["cnil_notification", "breach_register"];
+const DRAFTS: DraftDocument[] = ["cnil_notification", "breach_register", "subjects_notice"];
 
 // Builds both drafts (recorded as `draft` events, keys derived from the decision) and posts them to the DPO and the lawyer.
 export async function postDrafts(incidentId: string, decisionKey: string) {
-  const docs: string[] = [];
+  const docs: { document: DraftDocument; md: string }[] = [];
   for (const document of DRAFTS)
     for (let attempt = 0; ; attempt++) {
       try {
-        docs.push((await buildDraft(incidentId, document, `${decisionKey}:draft:${document}`)).markdown);
+        docs.push({ document, md: (await buildDraft(incidentId, document, `${decisionKey}:draft:${document}`)).markdown });
         break;
       } catch (e) {
+        if (e instanceof DraftRefused) break; // subjects notice before the lawyer decided to inform
         if (!(e instanceof VersionConflict) || attempt > 0) throw e;
       }
     }
@@ -380,6 +383,10 @@ export async function postDrafts(incidentId: string, decisionKey: string) {
   for (const person of data as { slack_user_id: string | null }[]) {
     if (!person.slack_user_id) continue;
     const channel = await openDm(person.slack_user_id);
-    for (const md of docs) await postDm(channel, [section("_Draft, to review before any use: nothing has been sent._"), ...markdownBlocks(md)].slice(0, 50), md.split("\n")[0].replace(/^# /, ""));
+    for (const { document, md } of docs) {
+      const actions = draftActionBlocks(incidentId, document);
+      const blocks = [section("_Draft, to review before any use: nothing has been sent._"), ...markdownBlocks(md)].slice(0, 50 - actions.length);
+      await postDm(channel, [...blocks, ...actions], md.split("\n")[0].replace(/^# /, ""));
+    }
   }
 }

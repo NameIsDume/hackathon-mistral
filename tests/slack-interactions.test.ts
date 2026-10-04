@@ -236,7 +236,7 @@ describe("POST /api/slack/interactions", () => {
     const events = m.recordEvent.mock.calls.map((c) => c[0]);
     expect(events[0].event).toMatchObject({ type: "decision", obligationId: "gdpr.notify_authority", choice: "notify", by: { role: "dpo", name: "Claire Martin" } });
     expect(events.slice(1).map((e) => e.event)).toEqual([
-      { type: "draft", document: "cnil_notification", status: "draft" },
+      { type: "draft", document: "cnil_notification", status: "draft", ai: { consequences: expect.any(String), measures: expect.any(String) } },
       { type: "draft", document: "breach_register", status: "draft" },
     ]);
     expect(events[1].idempotencyKey).toBe(`${events[0].idempotencyKey}:draft:cnil_notification`);
@@ -245,9 +245,10 @@ describe("POST /api/slack/interactions", () => {
     expect(posts).toHaveLength(4);
     for (const p of posts) {
       expect(p.blocks.length).toBeLessThanOrEqual(50);
-      for (const b of p.blocks) expect(b.text.text.length).toBeLessThanOrEqual(3000);
+      for (const b of p.blocks) expect(b.text?.text.length ?? 0).toBeLessThanOrEqual(3000);
     }
     expect(JSON.stringify(posts)).toContain("A phishing email led to the export");
+    expect(posts.filter((p) => JSON.stringify(p).includes("draft_approve_section:consequences"))).toHaveLength(2); // under the CNIL draft, DPO and lawyer
   });
 
   it("view_submission payloads are signature-checked too", async () => {
