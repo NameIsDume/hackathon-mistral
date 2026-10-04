@@ -99,3 +99,50 @@ export type RegulationModule = {
   questions: Question[];
   evaluate(snapshot: IncidentSnapshot): Assessment;
 };
+
+// Events stored in incident_events (type column = `type`, payload column = the rest).
+// Written by the core (intake, Slack routing, answers, decisions); read by the dashboard.
+const Person = z.object({ role: Role, name: z.string(), slackUserId: z.string().optional() });
+
+export const IncidentEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("signal"), signalId: z.uuid(), connectorId: z.string(), actor: z.string(), excerpt: z.string() }),
+  z.object({ type: z.literal("classification"), isIncident: z.boolean(), reason: z.string(), provenance: z.string().nullable() }),
+  z.object({
+    type: z.literal("extraction"),
+    status: z.enum(["ok", "unavailable"]),
+    provenance: z.string().nullable(), // model id or "fixture"
+    recordedDemo: z.boolean(),
+    brief: z.string().nullable(),
+    factKeys: z.array(z.string()), // facts proposed by this extraction
+  }),
+  z.object({
+    type: z.literal("notification"), // one Slack DM to one person
+    to: Person,
+    kind: z.enum(["brief", "questions", "assessment", "management_note", "decision"]),
+    questionIds: z.array(z.string()),
+    preview: z.string(), // what the DM says, as shown to that person
+    slack: z.object({ channel: z.string(), ts: z.string() }).nullable(),
+    delivered: z.boolean(),
+    error: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("answer"),
+    by: Person,
+    factKey: z.string(),
+    answer: z.enum(["yes", "no", "unknown"]),
+    via: z.enum(["slack", "web"]),
+  }),
+  z.object({ type: z.literal("severity_confirmed"), by: Person, value: Severity, previous: Severity.nullable() }),
+  z.object({ type: z.literal("awareness"), by: Person, at: z.iso.datetime({ offset: true }), previousAt: z.iso.datetime({ offset: true }).nullable() }),
+  z.object({
+    type: z.literal("decision"),
+    by: Person,
+    obligationId: z.string(),
+    choice: z.enum(["notify", "do_not_notify"]),
+    reasons: z.string(),
+    factsVersion: z.int().positive(),
+    moduleVersion: z.string(),
+  }),
+  z.object({ type: z.literal("draft"), document: z.enum(["cnil_notification", "breach_register", "subjects_notice"]), status: z.enum(["draft", "validated"]) }),
+]);
+export type IncidentEvent = z.infer<typeof IncidentEvent>;
