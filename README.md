@@ -1,4 +1,22 @@
+<div align="center">
+
+<img src="docs/images/sphynx-logo.png" alt="Sphynx" width="140" />
+
 # Sphynx
+
+**An incident-response copilot for GDPR — inside Slack.**
+
+*Mistral AI Hackathon · 2026*
+
+![Next.js](https://img.shields.io/badge/Next.js-16-151524?logo=nextdotjs&logoColor=white)
+![Mistral AI](https://img.shields.io/badge/Mistral%20AI-API-FA500F?logo=mistralai&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-Postgres-3ECF8E?logo=supabase&logoColor=white)
+![Slack](https://img.shields.io/badge/Slack-App-4A154B?logo=slack&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+
+</div>
+
+---
 
 When a company suspects a data breach, the hardest part isn't the technical clean-up — it's the law. Within 72 hours someone has to figure out whether regulators must be told, whether the people whose data leaked must be warned, and get the paperwork right, all while facts are still coming in and the clock is running. **Sphynx is a copilot that runs that process from the first Slack message**: it starts the clock, asks only the right people the few questions that actually change the legal answer, works out what the law requires, and drafts the notifications — leaving every real decision to a human.
 
